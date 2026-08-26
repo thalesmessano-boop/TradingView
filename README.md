@@ -27,9 +27,9 @@ TradingView (Pine Script)  --alerta/webhook-->  Servidor (Render/FastAPI)  --API
   média + alinhamento macro/micro.
 
 Este guia coloca tudo funcionando de ponta a ponta, na ordem certa:
-**1)** criar o segredo do webhook → **2)** criar conta WhatsApp (Twilio) →
-**3)** publicar o servidor (Render) → **4)** configurar o indicador e o
-alerta no TradingView.
+**1)** criar o segredo do webhook → **2)** criar conta WhatsApp (Meta Cloud
+API, gratuita) → **3)** publicar o servidor (Render) → **4)** configurar o
+indicador e o alerta no TradingView.
 
 ## 1. Gere o segredo do webhook
 
@@ -46,32 +46,55 @@ Guarde o resultado — ele vai ser usado em **dois lugares**: na variável
 indicador (passo 4). Nunca coloque esse valor em arquivos versionados no
 Git (o `.env` já está no `.gitignore` por isso).
 
-## 2. Crie a conta do WhatsApp (Twilio)
+## 2. Crie a conta do WhatsApp (Meta Cloud API — gratuita)
 
-Usamos o Twilio porque o **Sandbox é gratuito** e fica pronto em minutos —
-ideal para uso pessoal. (Depois, se quiser, dá pra migrar para um número
-Twilio de produção sem mudar nada no código.)
+Usamos a **Meta WhatsApp Cloud API** com o número de teste que a própria
+Meta fornece: gratuito, sem cartão de crédito, envia para até 5 números que
+você mesmo verificar. (O Twilio também funciona — está implementado como
+alternativa — mas o sandbox dele consome um crédito de teste que acaba.)
 
-1. Crie uma conta em https://www.twilio.com/try-twilio (não precisa cartão
-   para o sandbox de WhatsApp).
-2. No painel, vá em **Messaging → Try it out → Send a WhatsApp message**
-   (ou acesse diretamente https://www.twilio.com/console/sms/whatsapp/sandbox).
-3. Você verá um número do sandbox (ex.: `+1 415 523 8886`) e um código do
-   tipo `join palavra-chave`. Envie essa mensagem **do seu WhatsApp pessoal**
-   para aquele número — isso autoriza o sandbox a te enviar mensagens.
-4. Na página inicial do Console Twilio, anote:
-   - **Account SID**
-   - **Auth Token** (clique em "mostrar" para revelar)
-5. Guarde também:
-   - `TWILIO_WHATSAPP_FROM` = `whatsapp:+14155238886` (número do sandbox,
-     com o prefixo `whatsapp:`)
-   - `WHATSAPP_TO` = `whatsapp:+55SEUNUMERO` (seu número, com DDI+DDD, no
-     mesmo formato)
+1. Crie uma conta em https://developers.facebook.com/ (usa seu login do
+   Facebook).
+2. Vá em **My Apps → Create App** (https://developers.facebook.com/apps/create/)
+   → escolha o tipo **Business** → dê um nome (ex.: "XAUUSD Alerts") → crie.
+3. No painel do app, procure o produto **WhatsApp** e clique em **Set up**.
+4. Você cai na página **WhatsApp → API Setup**, que já mostra:
+   - Um **número de teste** (From) pronto pra usar.
+   - O campo **Phone number ID** — copie, vai virar `META_PHONE_NUMBER_ID`.
+   - Um **Temporary access token** (válido por 24h) — copie, vai virar
+     `META_ACCESS_TOKEN` (num passo abaixo trocamos por um token permanente).
+5. Em **To**, clique em **Manage phone number list** e adicione **o seu
+   número de WhatsApp** (com DDI+DDD). A Meta manda um código de verificação
+   pelo WhatsApp — confirme.
+6. Ainda nessa página, clique em **Send message** no template de teste
+   (`hello_world`) para confirmar que a mensagem chega no seu WhatsApp.
 
-> ⚠️ O sandbox do Twilio expira a autorização (`join`) após alguns dias de
-> inatividade — se as mensagens pararem de chegar, basta reenviar o `join`.
-> Para eliminar essa limitação, migre para um número Twilio pago com
-> WhatsApp habilitado (mesmas variáveis de ambiente, só troca o número).
+**Gerando um token permanente** (para o servidor rodar sem precisar trocar
+o token a cada 24h):
+
+7. Vá em https://business.facebook.com/settings/system-users
+8. **Add** → crie um usuário do sistema (System User) com papel **Admin**.
+9. Com o usuário criado, **Add Assets** → aba **Apps** → selecione o app
+   criado no passo 2 → marque **Full control** → salve.
+10. Clique em **Generate New Token** → selecione o app → marque as
+    permissões `whatsapp_business_messaging` e `whatsapp_business_management`
+    → **Generate Token**. Copie o token exibido (ele só aparece uma vez) —
+    esse é o `META_ACCESS_TOKEN` definitivo, não expira em 24h.
+
+**Criando o template da mensagem** (obrigatório para mensagens iniciadas
+pelo servidor, como nossos alertas):
+
+11. Vá em https://business.facebook.com/wa/manage/message-templates/
+12. **Create Template** → categoria **Utility** → nome, por exemplo
+    `sinal_trading` → idioma **Portuguese (BR)**.
+13. No corpo (Body), escreva apenas `{{1}}` (um único parâmetro de texto —
+    é nele que o servidor injeta a mensagem completa formatada).
+14. Envie para aprovação — normalmente aprova em poucos minutos.
+15. Guarde: `META_TEMPLATE_NAME=sinal_trading` e `META_TEMPLATE_LANG=pt_BR`.
+
+Ao final você deve ter: `META_PHONE_NUMBER_ID`, `META_ACCESS_TOKEN`
+(permanente), `META_TO_NUMBER` (seu número, só dígitos com DDI, ex.
+`5511999999999`), `META_TEMPLATE_NAME` e `META_TEMPLATE_LANG`.
 
 ## 3. Publique o servidor no Render
 
@@ -88,12 +111,13 @@ serviço automaticamente.
 5. Antes (ou logo depois) de concluir, preencha as variáveis de ambiente
    marcadas como secretas:
    - `WEBHOOK_SECRET` → o valor gerado no passo 1.
-   - `TWILIO_ACCOUNT_SID` → do passo 2.
-   - `TWILIO_AUTH_TOKEN` → do passo 2.
-   - `WHATSAPP_TO` → seu número, do passo 2 (formato `whatsapp:+55...`).
-   - (`WHATSAPP_PROVIDER` e `TWILIO_WHATSAPP_FROM` já vêm preenchidos no
-     `render.yaml` com os valores padrão do sandbox — só ajuste
-     `TWILIO_WHATSAPP_FROM` se migrar para um número de produção.)
+   - `META_PHONE_NUMBER_ID` → do passo 2.
+   - `META_ACCESS_TOKEN` → o token permanente do passo 2.
+   - `META_TO_NUMBER` → seu número, do passo 2 (só dígitos com DDI, ex.
+     `5511999999999`).
+   - `META_TEMPLATE_NAME` → do passo 2 (ex.: `sinal_trading`).
+   - (`WHATSAPP_PROVIDER` e `META_TEMPLATE_LANG` já vêm preenchidos no
+     `render.yaml`.)
 6. Clique em **Apply**/**Deploy**. O primeiro build leva alguns minutos.
 7. Quando o serviço ficar com status **Live**, copie a URL pública, algo
    como `https://tradingview-xauusd-webhook.onrender.com`.
@@ -115,10 +139,10 @@ qualquer host com Docker.
 cd webhook
 docker build -t tv-webhook .
 docker run -d --restart unless-stopped -p 8000:8000 \
-  -e WEBHOOK_SECRET=... -e WHATSAPP_PROVIDER=twilio \
-  -e TWILIO_ACCOUNT_SID=... -e TWILIO_AUTH_TOKEN=... \
-  -e TWILIO_WHATSAPP_FROM=whatsapp:+14155238886 \
-  -e WHATSAPP_TO=whatsapp:+55SEUNUMERO \
+  -e WEBHOOK_SECRET=... -e WHATSAPP_PROVIDER=meta \
+  -e META_PHONE_NUMBER_ID=... -e META_ACCESS_TOKEN=... \
+  -e META_TO_NUMBER=5511999999999 \
+  -e META_TEMPLATE_NAME=sinal_trading -e META_TEMPLATE_LANG=pt_BR \
   tv-webhook
 ```
 

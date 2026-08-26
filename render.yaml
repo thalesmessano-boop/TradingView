@@ -10,12 +10,14 @@ services:
       - key: WEBHOOK_SECRET
         sync: false
       - key: WHATSAPP_PROVIDER
-        value: twilio
-      - key: TWILIO_ACCOUNT_SID
+        value: meta
+      - key: META_PHONE_NUMBER_ID
         sync: false
-      - key: TWILIO_AUTH_TOKEN
+      - key: META_ACCESS_TOKEN
         sync: false
-      - key: TWILIO_WHATSAPP_FROM
-        value: "whatsapp:+14155238886"
-      - key: WHATSAPP_TO
+      - key: META_TO_NUMBER
         sync: false
+      - key: META_TEMPLATE_NAME
+        sync: false
+      - key: META_TEMPLATE_LANG
+        value: pt_BR
