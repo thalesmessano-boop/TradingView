@@ -11,7 +11,7 @@ envia automaticamente para o **WhatsApp**.
 ## Como funciona (visão geral)
 
 ```
-TradingView (Pine Script)  --alerta/webhook-->  Servidor (FastAPI)  --API-->  WhatsApp
+TradingView (Pine Script)  --alerta/webhook-->  Servidor (Render/FastAPI)  --API-->  WhatsApp
    BOS/CHoCH + Ondas +                              valida segredo
    Volume + Macro x Micro                           formata mensagem
 ```
@@ -26,9 +26,108 @@ TradingView (Pine Script)  --alerta/webhook-->  Servidor (FastAPI)  --API-->  Wh
   quem decide a entrada de fato é o BOS/CHoCH confirmado + volume acima da
   média + alinhamento macro/micro.
 
-## 1. Indicador Pine Script
+Este guia coloca tudo funcionando de ponta a ponta, na ordem certa:
+**1)** criar o segredo do webhook → **2)** criar conta WhatsApp (Twilio) →
+**3)** publicar o servidor (Render) → **4)** configurar o indicador e o
+alerta no TradingView.
 
-Arquivo: [`pine/xauusd_macro_micro_smc.pine`](pine/xauusd_macro_micro_smc.pine)
+## 1. Gere o segredo do webhook
+
+Esse segredo impede que qualquer pessoa que descubra a URL do seu servidor
+consiga mandar mensagens falsas para o seu WhatsApp. Gere um valor único, por
+exemplo rodando localmente:
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+```
+
+Guarde o resultado — ele vai ser usado em **dois lugares**: na variável
+`WEBHOOK_SECRET` do servidor (passo 3) e no input **"Segredo do webhook"** do
+indicador (passo 4). Nunca coloque esse valor em arquivos versionados no
+Git (o `.env` já está no `.gitignore` por isso).
+
+## 2. Crie a conta do WhatsApp (Twilio)
+
+Usamos o Twilio porque o **Sandbox é gratuito** e fica pronto em minutos —
+ideal para uso pessoal. (Depois, se quiser, dá pra migrar para um número
+Twilio de produção sem mudar nada no código.)
+
+1. Crie uma conta em https://www.twilio.com/try-twilio (não precisa cartão
+   para o sandbox de WhatsApp).
+2. No painel, vá em **Messaging → Try it out → Send a WhatsApp message**
+   (ou acesse diretamente https://www.twilio.com/console/sms/whatsapp/sandbox).
+3. Você verá um número do sandbox (ex.: `+1 415 523 8886`) e um código do
+   tipo `join palavra-chave`. Envie essa mensagem **do seu WhatsApp pessoal**
+   para aquele número — isso autoriza o sandbox a te enviar mensagens.
+4. Na página inicial do Console Twilio, anote:
+   - **Account SID**
+   - **Auth Token** (clique em "mostrar" para revelar)
+5. Guarde também:
+   - `TWILIO_WHATSAPP_FROM` = `whatsapp:+14155238886` (número do sandbox,
+     com o prefixo `whatsapp:`)
+   - `WHATSAPP_TO` = `whatsapp:+55SEUNUMERO` (seu número, com DDI+DDD, no
+     mesmo formato)
+
+> ⚠️ O sandbox do Twilio expira a autorização (`join`) após alguns dias de
+> inatividade — se as mensagens pararem de chegar, basta reenviar o `join`.
+> Para eliminar essa limitação, migre para um número Twilio pago com
+> WhatsApp habilitado (mesmas variáveis de ambiente, só troca o número).
+
+## 3. Publique o servidor no Render
+
+O repositório já inclui um `render.yaml` (Blueprint) e um `Dockerfile`
+prontos em [`webhook/`](webhook/) — o Render lê esse arquivo e cria o
+serviço automaticamente.
+
+1. Crie uma conta em https://render.com (dá pra usar login do GitHub).
+2. No painel, clique em **New +** → **Blueprint**.
+3. Conecte sua conta GitHub e selecione o repositório
+   `thalesmessano-boop/TradingView`.
+4. O Render vai detectar o `render.yaml` na raiz e propor o serviço
+   **tradingview-xauusd-webhook**. Confirme a criação.
+5. Antes (ou logo depois) de concluir, preencha as variáveis de ambiente
+   marcadas como secretas:
+   - `WEBHOOK_SECRET` → o valor gerado no passo 1.
+   - `TWILIO_ACCOUNT_SID` → do passo 2.
+   - `TWILIO_AUTH_TOKEN` → do passo 2.
+   - `WHATSAPP_TO` → seu número, do passo 2 (formato `whatsapp:+55...`).
+   - (`WHATSAPP_PROVIDER` e `TWILIO_WHATSAPP_FROM` já vêm preenchidos no
+     `render.yaml` com os valores padrão do sandbox — só ajuste
+     `TWILIO_WHATSAPP_FROM` se migrar para um número de produção.)
+6. Clique em **Apply**/**Deploy**. O primeiro build leva alguns minutos.
+7. Quando o serviço ficar com status **Live**, copie a URL pública, algo
+   como `https://tradingview-xauusd-webhook.onrender.com`.
+8. Confirme que está no ar abrindo no navegador:
+   `https://SEU-SERVICO.onrender.com/health` → deve responder
+   `{"status":"ok"}`.
+
+> Plano free do Render "dorme" após um tempo sem tráfego e demora alguns
+> segundos para acordar na próxima chamada — geralmente sem problema para
+> alertas de trading, mas se isso incomodar, migre para um plano pago
+> (mesma configuração, só muda o plano no `render.yaml` ou no painel).
+
+### (Alternativa) Rodar na sua própria VPS
+
+Se preferir não usar o Render: o mesmo `webhook/Dockerfile` funciona em
+qualquer host com Docker.
+
+```bash
+cd webhook
+docker build -t tv-webhook .
+docker run -d --restart unless-stopped -p 8000:8000 \
+  -e WEBHOOK_SECRET=... -e WHATSAPP_PROVIDER=twilio \
+  -e TWILIO_ACCOUNT_SID=... -e TWILIO_AUTH_TOKEN=... \
+  -e TWILIO_WHATSAPP_FROM=whatsapp:+14155238886 \
+  -e WHATSAPP_TO=whatsapp:+55SEUNUMERO \
+  tv-webhook
+```
+
+Depois coloque um proxy reverso com HTTPS na frente (Caddy/Nginx +
+Let's Encrypt), pois o TradingView exige URL pública HTTPS.
+
+## 4. Configure o indicador e o alerta no TradingView
+
+**Indicador** — arquivo [`pine/xauusd_macro_micro_smc.pine`](pine/xauusd_macro_micro_smc.pine):
 
 1. Abra o gráfico de **XAU/USD** no TradingView, no timeframe que você quer
    usar como **gatilho de entrada** (ex.: 15m ou 1H).
@@ -43,77 +142,39 @@ Arquivo: [`pine/xauusd_macro_micro_smc.pine`](pine/xauusd_macro_micro_smc.pine)
      volume relevante.
    - **ATR / Buffer do Stop / R:R**: como o stop loss e o take profit são
      calculados a partir do swing rompido.
-   - **Segredo do webhook**: defina uma string única — ela precisa ser
-     **idêntica** ao `WEBHOOK_SECRET` do servidor (passo 3).
+   - **Segredo do webhook**: cole o **mesmo valor** gerado no passo 1 e já
+     configurado no Render como `WEBHOOK_SECRET`.
 
-## 2. Alerta do TradingView
+**Alerta:**
 
 1. Com o indicador no gráfico, clique em **Criar Alerta** (ícone de
    relógio).
 2. Em **Condição**, selecione o indicador → **"Any alert() function call"**
    (é essa opção que usa o payload JSON dinâmico gerado pelo script).
-3. Em **Ações do Alerta**, marque **Webhook URL** e informe a URL pública do
-   seu servidor, por exemplo:
-   `https://SEU-DOMINIO-OU-NGROK/webhook/tradingview`
+3. Em **Ações do Alerta**, marque **Webhook URL** e informe a URL do Render
+   do passo 3, com o caminho `/webhook/tradingview`, por exemplo:
+   `https://tradingview-xauusd-webhook.onrender.com/webhook/tradingview`
 4. Deixe **Expiração** em "Aberto" (sem data de expiração) para rodar de
    forma contínua.
 5. O campo "Mensagem" pode ficar com o padrão — o conteúdo enviado é o JSON
    definido dentro do `alert()` no Pine Script.
 
-> O TradingView exige uma **URL pública HTTPS** para o webhook. Para testar
-> localmente antes de colocar em produção, use o [ngrok](https://ngrok.com/)
-> (`ngrok http 8000`) para expor seu servidor local temporariamente.
+Pronto — a partir daqui, todo BOS/CHoCH confirmado com volume e alinhamento
+macro/micro chega automaticamente no seu WhatsApp com entrada, stop loss e
+take profit.
 
-## 3. Servidor de webhook → WhatsApp
+## Testando sem esperar o mercado
 
-Arquivos em [`webhook/`](webhook/).
-
-### Instalação
+Para validar o servidor (local ou já publicado) sem depender de um sinal
+real do TradingView:
 
 ```bash
 cd webhook
-python -m venv .venv
-source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env
-```
-
-Edite `.env`:
-
-- `WEBHOOK_SECRET`: **igual** ao valor colocado no input do Pine Script.
-- `WHATSAPP_PROVIDER`: `twilio` (mais simples para uso pessoal) ou `meta`
-  (WhatsApp Cloud API oficial da Meta).
-
-**Opção Twilio (recomendada para começar):**
-1. Crie uma conta em https://www.twilio.com/whatsapp e ative o **WhatsApp
-   Sandbox**.
-2. Envie a mensagem de join indicada pelo Twilio para o número sandbox pelo
-   seu WhatsApp (necessário uma vez, e o sandbox exige reconexão periódica).
-3. Preencha `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`
-   (o número do sandbox) e `WHATSAPP_TO` (seu número, no formato
-   `whatsapp:+55DDDNUMERO`).
-4. Para produção (fora do sandbox), migre para um número Twilio com WhatsApp
-   habilitado — mesma configuração, apenas troque `TWILIO_WHATSAPP_FROM`.
-
-**Opção Meta Cloud API:**
-1. Crie um app em https://developers.facebook.com/ com o produto **WhatsApp**.
-2. Preencha `META_PHONE_NUMBER_ID` e `META_ACCESS_TOKEN`.
-3. Como o alerta é uma mensagem **iniciada pelo negócio** (fora da janela de
-   24h de atendimento), a Meta exige um **template pré-aprovado**. Crie um
-   template simples com um parâmetro de texto e informe o nome em
-   `META_TEMPLATE_NAME`.
-
-### Rodando
-
-```bash
-python server.py
-# ou: uvicorn server:app --host 0.0.0.0 --port 8000
-```
-
-Teste sem depender do TradingView:
-
-```bash
-python test_local.py
+cp .env.example .env   # preencha com seus valores
+python server.py       # ou aponte PORT/URL para o serviço no Render
+python simulate_alert.py
 ```
 
 Isso deve chegar no seu WhatsApp uma mensagem como:
@@ -134,13 +195,20 @@ Volume: 1.80x a média
 R:R: 2.0 | Risco sugerido: 1.0%
 ```
 
-### Colocando em produção
+### Testes automatizados
 
-O servidor precisa ficar acessível publicamente 24/7 para receber os
-webhooks do TradingView. Opções simples: uma VPS pequena, Render, Railway,
-Fly.io ou um container Docker em qualquer provedor. Não há Dockerfile neste
-repositório ainda — se quiser, posso adicionar um para o provedor que você
-escolher.
+O servidor tem testes cobrindo validação do segredo, payload inválido,
+formatação da mensagem e tratamento de falha de envio:
+
+```bash
+cd webhook
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Eles também rodam automaticamente via GitHub Actions
+(`.github/workflows/webhook-tests.yml`) a cada push/PR que toque em
+`webhook/`.
 
 ## Ajustando o alinhamento macro/micro
 
