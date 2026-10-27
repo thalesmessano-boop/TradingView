@@ -3,3 +3,7 @@ __pycache__/
 .venv/
 venv/
 .env
+
+# Dados locais do filtro de risco (gerados em runtime, não versionados)
+webhook/trader/config.json
+webhook/trader/state/

@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, ValidationError
 
+import risk
 from whatsapp import WhatsAppError, send_whatsapp_message
 
 load_dotenv()
@@ -83,6 +84,11 @@ async def tradingview_webhook(request: Request):
     if not expected_secret or alert.secret != expected_secret:
         logger.warning("Tentativa de webhook com segredo inválido.")
         raise HTTPException(status_code=401, detail="Segredo inválido")
+
+    verdict, reason = risk.check(alert.model_dump())
+    if verdict == "BLOCK":
+        logger.info("Sinal %s/%s bloqueado pelo filtro de risco: %s", alert.symbol, alert.event, reason)
+        return {"status": "blocked", "reason": reason}
 
     message = format_message(alert)
     try:

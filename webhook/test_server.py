@@ -33,6 +33,11 @@ def webhook_secret(monkeypatch):
     monkeypatch.setenv("WEBHOOK_SECRET", "test-secret")
 
 
+@pytest.fixture(autouse=True)
+def trader_dir(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRADER_DATA_DIR", str(tmp_path))
+
+
 def test_health():
     resp = client.get("/health")
     assert resp.status_code == 200
@@ -65,6 +70,20 @@ def test_webhook_sends_formatted_message(monkeypatch):
     assert "2415.30" in sent["text"]
     assert "2408.50" in sent["text"]
     assert "2428.90" in sent["text"]
+
+
+def test_webhook_blocks_duplicate_signal(monkeypatch):
+    sent = []
+    monkeypatch.setattr(server, "send_whatsapp_message", sent.append)
+
+    first = client.post("/webhook/tradingview", json=PAYLOAD)
+    second = client.post("/webhook/tradingview", json=PAYLOAD)
+
+    assert first.status_code == 200
+    assert first.json() == {"status": "sent"}
+    assert second.status_code == 200
+    assert second.json()["status"] == "blocked"
+    assert len(sent) == 1
 
 
 def test_webhook_returns_502_on_whatsapp_failure(monkeypatch):

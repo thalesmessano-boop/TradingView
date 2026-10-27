@@ -12,8 +12,8 @@ envia automaticamente para o **WhatsApp**.
 
 ```
 TradingView (Pine Script)  --alerta/webhook-->  Servidor (Render/FastAPI)  --API-->  WhatsApp
-   BOS/CHoCH + Ondas +                              valida segredo
-   Volume + Macro x Micro                           formata mensagem
+   BOS/CHoCH + Ondas +                       valida segredo -> filtro de risco
+   Volume + Macro x Micro                     (PASS/BLOCK) -> formata mensagem
 ```
 
 - **Sem repintura**: o script só confirma pivôs e dispara alertas no
@@ -222,7 +222,8 @@ R:R: 2.0 | Risco sugerido: 1.0%
 ### Testes automatizados
 
 O servidor tem testes cobrindo validação do segredo, payload inválido,
-formatação da mensagem e tratamento de falha de envio:
+formatação da mensagem, tratamento de falha de envio e o filtro de risco
+(duplicado, limite diário, R:R mínimo, distância de stop):
 
 ```bash
 cd webhook
@@ -233,6 +234,42 @@ python -m pytest -q
 Eles também rodam automaticamente via GitHub Actions
 (`.github/workflows/webhook-tests.yml`) a cada push/PR que toque em
 `webhook/`.
+
+## Filtro de risco e estrutura tipo "skills"
+
+O pipeline continua 100% automático (TradingView → servidor → WhatsApp),
+sem nenhuma aprovação manual — mas antes de qualquer sinal virar mensagem,
+`webhook/risk.py` aplica um filtro PASS/BLOCK inspirado no padrão de
+skills de trading do tipo `trader-risk`: ele bloqueia sinal duplicado
+(mesmo lado/evento/timeframe dentro de um cooldown), limite diário de
+sinais, R:R abaixo do mínimo e distância de stop fora de uma faixa
+aceitável. Um BLOCK é só registrado — nada chega no WhatsApp, e o
+TradingView recebe `200 OK` normalmente (sem retry).
+
+```
+webhook/trader/
+├── config.example.json   # limites padrão (versionado)
+├── config.json           # seus limites (local, fora do git)
+└── state/
+    ├── alerts_state.json # sinais recentes, para cooldown e limite diário
+    └── risk_log.jsonl    # histórico de todo veredito, com o motivo do BLOCK
+```
+
+Para inspecionar isso depois, sem mexer no servidor em produção, há uma
+skill de projeto do Claude Code em
+[`.claude/skills/xau-ops/`](.claude/skills/xau-ops/SKILL.md). Numa sessão
+do Claude Code neste repositório, peça coisas como "mostra os sinais de
+hoje" ou "por que foi bloqueado", ou rode direto:
+
+```bash
+python3 .claude/skills/xau-ops/ops.py log --only block
+python3 .claude/skills/xau-ops/ops.py set max_signals_per_day 10
+```
+
+Ela só lê/ajusta esses arquivos — não manda WhatsApp, não chama corretora
+e não decide entrada/stop/alvo (isso continua sendo o indicador Pine
+Script). O disco do plano gratuito do Render é efêmero: um redeploy pode
+zerar `trader/state/` (o histórico e a contagem diária voltam do zero).
 
 ## Ajustando o alinhamento macro/micro
 
@@ -247,8 +284,8 @@ servidor.
 
 - Registrar os sinais enviados em um banco de dados/planilha para
   acompanhar performance.
-- Adicionar deduplicação (evitar reenviar o mesmo sinal em caso de retry do
-  TradingView).
+- Trocar o log em arquivo (`trader/state/`) por um armazenamento
+  persistente (ex.: banco gerenciado) se o disco efêmero do Render incomodar.
 - Usar a skill `elliott-wyckoff-wave-analysis` para complementar
   periodicamente os sinais automáticos com uma leitura manual/IA de Elliott
   Wave e zonas de Wyckoff.
