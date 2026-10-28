@@ -1,0 +1,1016 @@
+<title>Painel XAU/USD</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --bg:#faf7f1; --surface:#ffffff; --fg:#1c1a16; --muted:#716a5c;
+    --accent:#8a6a17; --accent-soft:#f1e6c8; --pass:#2f7a57; --pass-soft:#e3f1e8;
+    --block:#a63a35; --block-soft:#fbe8e6; --border:#e8e0d0; --code-bg:#f2ecde;
+    --up:#2f7a57; --down:#a63a35; --neutral:#9b9484;
+    --font-display:'IBM Plex Sans',system-ui,sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#131109; --surface:#1c1810; --fg:#f1ebd9; --muted:#aba28c;
+      --accent:#e0b94e; --accent-soft:#3a2f12; --pass:#7fd9ab; --pass-soft:#163827;
+      --block:#f0968f; --block-soft:#3a1d1a; --border:#352c19; --code-bg:#201a10;
+      --up:#7fd9ab; --down:#f0968f; --neutral:#776f5c;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#131109; --surface:#1c1810; --fg:#f1ebd9; --muted:#aba28c;
+    --accent:#e0b94e; --accent-soft:#3a2f12; --pass:#7fd9ab; --pass-soft:#163827;
+    --block:#f0968f; --block-soft:#3a1d1a; --border:#352c19; --code-bg:#201a10;
+    --up:#7fd9ab; --down:#f0968f; --neutral:#776f5c;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--fg);font-family:var(--font-display);line-height:1.5;
+    padding-left:max(16px, env(safe-area-inset-left,0px)); padding-right:max(16px, env(safe-area-inset-right,0px));}
+  main{max-width:1040px;margin:0 auto;padding-block:40px 70px;display:flex;flex-direction:column;gap:34px}
+  h1,h2,h3{text-wrap:balance;font-weight:700;margin:0}
+  h1{font-size:clamp(1.5rem,3.6vw,2.05rem);letter-spacing:-0.01em}
+  h2{font-size:1.15rem}
+  p{margin:0;color:var(--muted)}
+  code,.mono{font-family:var(--font-mono)}
+  .eyebrow{font-family:var(--font-mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+  .hero{display:flex;flex-direction:column;gap:10px}
+  .hero p{max-width:66ch}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+  .section-head{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
+
+  /* controles */
+  .controls-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px 16px}
+  .field{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .field label{font-size:.72rem;color:var(--muted)}
+  .field input, .field select{font-family:var(--font-mono);font-size:.85rem;background:var(--bg);
+    color:var(--fg);border:1px solid var(--border);border-radius:7px;padding:7px 9px;width:100%}
+  .field input:focus, .field select:focus, button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .controls-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+  button{font-family:var(--font-display);font-size:.82rem;font-weight:600;border-radius:8px;padding:9px 14px;
+    border:1px solid var(--border);background:var(--surface);color:var(--fg);cursor:pointer}
+  button.primary{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+  button:hover{filter:brightness(0.97)}
+  .controls-note{font-size:.76rem;color:var(--muted);margin-top:2px}
+
+  /* resumo */
+  .summary-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .stat{display:flex;flex-direction:column;gap:3px}
+  .stat .label{font-family:var(--font-mono);font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .stat .value{font-size:1.15rem;font-weight:700;font-variant-numeric:tabular-nums}
+  .stat .value.up{color:var(--up)} .stat .value.down{color:var(--down)}
+  .badge{font-family:var(--font-mono);font-size:.74rem;padding:3px 9px;border-radius:999px;display:inline-flex;gap:5px;align-items:center;width:fit-content}
+  .badge.pass{background:var(--pass-soft);color:var(--pass)} .badge.block{background:var(--block-soft);color:var(--block)}
+  .badge.neutral{background:var(--border);color:var(--muted)}
+
+  /* legenda + gráfico */
+  .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.76rem;color:var(--muted);margin-bottom:10px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend .swatch{width:11px;height:11px;border-radius:3px;flex:none}
+  .chart-scroll{overflow-x:auto;border:1px solid var(--border);border-radius:10px;background:var(--surface)}
+  .chart-inner{position:relative}
+  .chart-inner canvas{display:block}
+  .axis-row{height:22px;position:relative;border-top:1px solid var(--border)}
+  .axis-label{position:absolute;top:3px;font-family:var(--font-mono);font-size:.64rem;color:var(--muted);white-space:nowrap}
+  .tooltip{position:fixed;z-index:20;background:var(--fg);color:var(--bg);font-family:var(--font-mono);
+    font-size:.72rem;padding:8px 10px;border-radius:8px;max-width:260px;line-height:1.5;pointer-events:none;box-shadow:0 6px 18px rgba(0,0,0,.25)}
+
+  table{width:100%;border-collapse:collapse;font-size:.84rem}
+  .table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top;white-space:nowrap}
+  th{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);background:var(--bg)}
+  tr:last-child td{border-bottom:none}
+  details.wa summary{cursor:pointer;color:var(--accent);font-size:.78rem;white-space:nowrap}
+  details.wa pre{white-space:pre-wrap;font-family:var(--font-mono);font-size:.76rem;background:var(--code-bg);
+    border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:6px;max-width:320px}
+
+  textarea{width:100%;min-height:90px;font-family:var(--font-mono);font-size:.78rem;background:var(--bg);
+    color:var(--fg);border:1px solid var(--border);border-radius:8px;padding:9px;resize:vertical}
+  .tabs{display:flex;gap:8px;margin-bottom:12px}
+  .tab{font-size:.8rem;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:var(--bg);
+    color:var(--muted);cursor:pointer}
+  .tab[aria-selected="true"]{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+  [hidden]{display:none!important}
+
+  footer{display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;border-top:1px solid var(--border);
+    padding-top:18px;font-size:.78rem;color:var(--muted)}
+  footer a{color:var(--muted)}
+
+  /* ticket de execução manual */
+  .ticket{border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .ticket-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 18px;color:var(--bg)}
+  .ticket-head.buy{background:var(--up)} .ticket-head.sell{background:var(--down)} .ticket-head.empty{background:var(--neutral)}
+  .ticket-head strong{font-size:1.05rem}
+  .ticket-body{padding:16px 18px;background:var(--surface);display:flex;flex-direction:column;gap:14px}
+  .ticket-levels{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
+  .ticket-levels .lvl{display:flex;flex-direction:column;gap:2px}
+  .ticket-levels .lvl .k{font-family:var(--font-mono);font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .ticket-levels .lvl .v{font-size:1.05rem;font-weight:700;font-variant-numeric:tabular-nums}
+  .ticket-size{background:var(--accent-soft);border-radius:8px;padding:10px 14px;font-size:.84rem;color:var(--accent)}
+  .ticket-size strong{font-variant-numeric:tabular-nums}
+  .ticket-actions{display:flex;gap:10px;flex-wrap:wrap}
+  .copy-ok{color:var(--pass);font-size:.78rem}
+
+  /* relógio de sessão */
+  .session-row{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
+  .session-badge{font-family:var(--font-mono);font-size:.8rem;padding:6px 12px;border-radius:999px}
+  .session-badge.open{background:var(--pass-soft);color:var(--pass)}
+  .session-badge.closed{background:var(--block-soft);color:var(--block)}
+  .session-badge.warn{background:var(--accent-soft);color:var(--accent)}
+
+  /* registro de operações */
+  .trade-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:14px}
+  .pnl-pos{color:var(--pass)} .pnl-neg{color:var(--block)}
+  .trade-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.9rem;padding:2px 6px}
+</style>
+
+<main>
+
+  <section class="hero">
+    <span class="eyebrow">Painel de operação manual · roda a mesma lógica do indicador</span>
+    <h1>Do candle ao ticket: a análise inteira, calculada aqui</h1>
+    <p>Esta página <strong>calcula</strong>: pivôs, tendência macro e micro, BOS/CHoCH, onda, filtro de
+    volume e o filtro de risco (PASS/BLOCK), com as mesmas fórmulas e os mesmos valores padrão de
+    <code class="mono">pine/xauusd_macro_micro_smc.pine</code> e <code class="mono">webhook/risk.py</code>.
+    Ela nunca executa nada sozinha — mostra o ticket pronto (entrada, stop, alvo, tamanho sugerido) pra
+    você decidir e operar manualmente na sua corretora, na outra tela.</p>
+  </section>
+
+  <section class="card">
+    <div class="section-head"><h2>Dados</h2><p>Demonstração sintética por padrão, ou cole os seus candles.</p></div>
+    <div class="tabs" role="tablist">
+      <button class="tab" id="tabDemo" role="tab" aria-selected="true">Demonstração</button>
+      <button class="tab" id="tabCustom" role="tab" aria-selected="false">Meus dados (CSV)</button>
+    </div>
+    <div id="panelDemo">
+      <p class="controls-note">~<span id="demoBarCount">0</span> candles de 15 min sintéticos (gerados com semente fixa,
+      reproduzíveis), cobrindo fases de alta, baixa e consolidação para que BOS/CHoCH e volume apareçam de verdade.</p>
+    </div>
+    <div id="panelCustom" hidden>
+      <p class="controls-note">No gráfico do XAU/USD na TradingView: botão direito → <strong>Export chart data...</strong> →
+      CSV (funciona com qualquer corretora, ex. OANDA:XAUUSD ou FOREXCOM:XAUUSD). O formato exportado
+      (<code class="mono">time,open,high,low,close,Volume</code>, tempo em epoch Unix) é reconhecido direto —
+      não precisa editar o arquivo. Também aceita tempo em ISO e volume ausente (usamos um proxy pelo range do candle).</p>
+      <textarea id="csvInput" placeholder="time,open,high,low,close,Volume&#10;1697760000,2415.10,2416.40,2414.80,2415.90,1240&#10;1697760900,2415.90,2417.20,2415.50,2416.80,1510&#10;..."></textarea>
+      <div class="controls-row">
+        <input type="file" id="csvFile" accept=".csv,text/csv">
+        <button id="applyCsv" class="primary">Usar estes dados</button>
+      </div>
+      <p class="controls-note" id="csvStatus"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-head"><h2>Parâmetros</h2><p>Os mesmos inputs do indicador Pine Script e do <code class="mono">risk.py</code>.</p></div>
+    <div class="controls-grid">
+      <div class="field"><label for="macroAggBars">Candles micro por macro</label><input type="number" id="macroAggBars" value="16" min="2"></div>
+      <div class="field"><label for="macroSwingLen">Sensibilidade pivô (macro)</label><input type="number" id="macroSwingLen" value="8" min="2"></div>
+      <div class="field"><label for="microSwingLen">Sensibilidade pivô (micro)</label><input type="number" id="microSwingLen" value="5" min="2"></div>
+      <div class="field"><label for="volSmaLen">Média de volume (período)</label><input type="number" id="volSmaLen" value="20" min="2"></div>
+      <div class="field"><label for="volMult">Volume mínimo × média</label><input type="number" id="volMult" value="1.5" min="1" step="0.1"></div>
+      <div class="field"><label for="atrLen">ATR (período)</label><input type="number" id="atrLen" value="14" min="2"></div>
+      <div class="field"><label for="atrBuffer">Buffer do stop (× ATR)</label><input type="number" id="atrBuffer" value="0.25" min="0" step="0.05"></div>
+      <div class="field"><label for="rrRatio">R:R do indicador</label><input type="number" id="rrRatio" value="2.0" min="0.5" step="0.5"></div>
+      <div class="field"><label for="cooldownMinutes">Cooldown entre sinais (min)</label><input type="number" id="cooldownMinutes" value="15" min="0"></div>
+      <div class="field"><label for="maxSignalsPerDay">Limite diário de sinais</label><input type="number" id="maxSignalsPerDay" value="6" min="1"></div>
+      <div class="field"><label for="minRR">R:R mínimo (filtro de risco)</label><input type="number" id="minRR" value="1.5" min="0" step="0.1"></div>
+      <div class="field"><label for="minStopUsd">Stop mínimo (USD)</label><input type="number" id="minStopUsd" value="1.0" min="0" step="0.1"></div>
+      <div class="field"><label for="maxStopUsd">Stop máximo (USD)</label><input type="number" id="maxStopUsd" value="50.0" min="1" step="1"></div>
+    </div>
+    <div class="controls-row">
+      <button id="btnReset">Restaurar padrões</button>
+      <button id="btnStress">Apertar limites (ver BLOCK em ação)</button>
+      <span class="controls-note">Diminui o limite diário e o cooldown, e sobe o R:R mínimo acima do R:R do indicador — útil pra ver o filtro de risco barrando sinais de verdade.</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-head"><h2>Estado agora</h2></div>
+    <div class="summary-grid">
+      <div class="stat"><span class="label">Tendência macro</span><span class="value" id="statMacro">—</span></div>
+      <div class="stat"><span class="label">Estrutura micro</span><span class="value" id="statMicro">—</span></div>
+      <div class="stat"><span class="label">Onda (heurística)</span><span class="value" id="statWave">—</span></div>
+      <div class="stat"><span class="label">Sinais aprovados</span><span class="value" id="statPass">0</span></div>
+      <div class="stat"><span class="label">Sinais bloqueados</span><span class="value" id="statBlock">0</span></div>
+      <div class="stat"><span class="label">Último veredito</span><span id="statLast"><span class="badge neutral">—</span></span></div>
+    </div>
+    <div class="section-head" style="margin-top:16px"><h2>Relógio de sessão (agora de verdade, não dos dados carregados)</h2></div>
+    <div class="session-row">
+      <span class="session-badge" id="sessionMarket">—</span>
+      <span class="session-badge" id="sessionNow">—</span>
+      <span class="session-badge warn" id="sessionGapWarning" hidden>⚠ entrando no gap de liquidez do fim de semana</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-head">
+      <h2>Posicionamento institucional (COT · CFTC)</h2>
+      <p>Direto do navegador, sem passar por mim — só funciona com este arquivo aberto fora do Claude (com internet).
+      Dentro do visualizador de artefato isso é bloqueado pelo sandbox, mesmo a CFTC permitindo.</p>
+    </div>
+    <div id="cotBox"><p class="controls-note">Buscando o relatório mais recente da CFTC…</p></div>
+    <div class="controls-row">
+      <button id="btnCotRefresh">Atualizar COT</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-head"><h2>Ticket</h2><p>O último sinal aprovado, pronto pra ler e operar na sua corretora — nunca executado por aqui.</p></div>
+    <div class="controls-grid" style="margin-bottom:16px">
+      <div class="field"><label for="accountSize">Conta (USD)</label><input type="number" id="accountSize" value="10000" min="0" step="100"></div>
+      <div class="field"><label for="riskPercentTrade">Risco por operação (%)</label><input type="number" id="riskPercentTrade" value="1.0" min="0.1" step="0.1"></div>
+      <div class="field"><label for="contractSize">Onças por lote</label><input type="number" id="contractSize" value="100" min="0.01" step="1"></div>
+    </div>
+    <div class="ticket" id="ticketCard">
+      <div class="ticket-head empty"><strong>Sem sinal aprovado ainda</strong></div>
+      <div class="ticket-body"><p class="controls-note">Ajuste os parâmetros ou carregue dados reais — quando um sinal passar pelo filtro de risco, o ticket aparece aqui.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Gráfico</h2><p>Role para o lado para ver toda a janela — cada pivô mostra a onda; cada gatilho, se passou ou foi bloqueado.</p></div>
+    <div class="legend">
+      <span><span class="swatch" style="background:var(--up)"></span>Compra (BOS/CHoCH de alta)</span>
+      <span><span class="swatch" style="background:var(--down)"></span>Venda (BOS/CHoCH de baixa)</span>
+      <span>● sólido = PASS (ticket pronto) · ○ contorno = BLOCK</span>
+      <span><span class="swatch" style="background:var(--accent)"></span>Volume ≥ limiar</span>
+      <span>faixa de fundo = tendência macro</span>
+    </div>
+    <div class="chart-scroll">
+      <div class="chart-inner" id="chartInner">
+        <canvas id="priceCanvas"></canvas>
+        <canvas id="volCanvas"></canvas>
+        <div class="axis-row" id="axisRow"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Sinais</h2><p>Na ordem em que o filtro de risco os avaliaria; PASS mostra o ticket e deixa registrar a execução.</p></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Quando</th><th>Lado</th><th>Evento</th><th>Onda</th><th>Vol</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>R:R</th><th>Veredito</th></tr></thead>
+        <tbody id="signalsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="section-head"><h2>Registro de operações</h2><p>Só o que você confirma manualmente — fica salvo neste navegador (não sincroniza entre dispositivos).</p></div>
+    <div class="trade-form">
+      <div class="field"><label for="tfSide">Lado</label><select id="tfSide"><option value="BUY">COMPRA</option><option value="SELL">VENDA</option></select></div>
+      <div class="field"><label for="tfEntry">Entrada</label><input type="number" id="tfEntry" step="0.01"></div>
+      <div class="field"><label for="tfExit">Saída</label><input type="number" id="tfExit" step="0.01"></div>
+      <div class="field"><label for="tfSize">Tamanho (oz)</label><input type="number" id="tfSize" step="0.01" value="1"></div>
+      <div class="field" style="justify-content:flex-end"><button id="tfAdd" class="primary">Adicionar</button></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Quando</th><th>Lado</th><th>Entrada</th><th>Saída</th><th>Oz</th><th>P&amp;L (USD)</th><th></th></tr></thead>
+        <tbody id="tradesBody"></tbody>
+      </table>
+    </div>
+    <p class="controls-note" id="tradesTotalNote" style="margin-top:10px"></p>
+  </section>
+
+  <footer>
+    <span>Mesma lógica de <code class="mono">pine/xauusd_macro_micro_smc.pine</code> e <code class="mono">webhook/risk.py</code> — nunca executa nada sozinha, só mostra o ticket. Dados de demonstração ou os que você carregar, não um feed ao vivo.</span>
+    <span><a href="https://github.com/thalesmessano-boop/TradingView/pull/1" target="_blank" rel="noopener">PR #1</a> · <a href="https://github.com/thalesmessano-boop/TradingView" target="_blank" rel="noopener">repositório</a></span>
+  </footer>
+
+</main>
+
+<div class="tooltip" id="tooltip" hidden></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------- RNG + dados de demonstração ----------
+  function mulberry32(seed){
+    return function(){
+      seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function round2(x){ return Math.round(x*100)/100; }
+
+  function generateDemoData(seed){
+    const rng = mulberry32(seed || 20261027);
+    const pattern = [0.45,-0.1,-0.5,0.3,-0.35,0.55,-0.2,0.4,-0.45,0.25,-0.15,0.5,-0.4,0.3,-0.25,0.4];
+    const regimes = pattern.map(drift => ({ bars:190, drift, vol: 1.0 + Math.abs(drift)*1.1 }));
+    let price = 2400;
+    const start = Date.UTC(2026,9,20,0,0,0);
+    const candles = [];
+    let i = 0;
+    for (const regime of regimes){
+      for (let b=0;b<regime.bars;b++,i++){
+        const o = price;
+        const intraVol = regime.vol * (0.6 + rng()*0.8);
+        const closeChange = regime.drift*0.05 + (rng()-0.5)*intraVol;
+        const c = o + closeChange;
+        const h = Math.max(o,c) + rng()*intraVol*0.5;
+        const l = Math.min(o,c) - rng()*intraVol*0.5;
+        price = c;
+        let v = 850 + rng()*250 + Math.abs(closeChange)*2600;
+        if (rng() < 0.18) v *= 1.6 + rng()*1.6;
+        candles.push({ t:start+i*15*60000, o:round2(o), h:round2(h), l:round2(l), c:round2(c), v:Math.round(v) });
+      }
+    }
+    return candles;
+  }
+
+  // aceita o CSV exportado pela TradingView (botão direito no gráfico > Export chart
+  // data...): time,open,high,low,close,Volume — tempo em epoch Unix (segundos ou ms),
+  // mas também aceita ISO e volume ausente (usa um proxy pelo range do candle).
+  function parseTimeField(tRaw){
+    if (/^\d+(\.\d+)?$/.test(tRaw)){
+      const n = parseFloat(tRaw);
+      return n < 2e10 ? Math.round(n * 1000) : Math.round(n); // segundos vs ms
+    }
+    const parsed = Date.parse(tRaw);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  function parseCsv(text){
+    const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+    const rows = [];
+    for (const line of lines){
+      const parts = line.split(",").map(s=>s.trim());
+      if (parts.length < 5) continue;
+      const [tRaw,oRaw,hRaw,lRaw,cRaw,vRaw] = parts;
+      const o = parseFloat(oRaw), h = parseFloat(hRaw), l = parseFloat(lRaw), c = parseFloat(cRaw);
+      if ([o,h,l,c].some(x=>Number.isNaN(x))) continue; // linha de cabeçalho ou inválida
+      const t = parseTimeField(tRaw);
+      if (t == null) continue;
+      const vParsed = vRaw != null ? parseFloat(vRaw) : NaN;
+      rows.push({ t, o, h, l, c, v: Number.isNaN(vParsed) ? null : vParsed });
+    }
+    rows.sort((a,b)=>a.t-b.t);
+    const hasRealVolume = rows.some(r=>r.v != null && r.v > 0);
+    const out = rows.map(r=>({
+      t:r.t, o:r.o, h:r.h, l:r.l, c:r.c,
+      v: hasRealVolume ? (r.v ?? 0) : Math.max(1, Math.round((r.h-r.l)*1000)),
+    }));
+    return { candles: out, volumeIsProxy: !hasRealVolume };
+  }
+
+  // ---------- núcleo: porte de pine/xauusd_macro_micro_smc.pine + webhook/risk.py ----------
+  function computePivots(candles, len){
+    const ph = new Array(candles.length).fill(null);
+    const pl = new Array(candles.length).fill(null);
+    for (let i=len;i<candles.length-len;i++){
+      let isPH=true, isPL=true;
+      for (let k=i-len;k<=i+len;k++){
+        if (k===i) continue;
+        if (candles[k].h > candles[i].h) isPH=false;
+        if (candles[k].l < candles[i].l) isPL=false;
+      }
+      if (isPH) ph[i]=candles[i].h;
+      if (isPL) pl[i]=candles[i].l;
+    }
+    return { ph, pl };
+  }
+
+  function structureTrend(candles, len){
+    const { ph, pl } = computePivots(candles, len);
+    const trend = new Array(candles.length).fill(0);
+    let cur=0, lastPH=null, prevPH=null, lastPL=null, prevPL=null;
+    for (let i=0;i<candles.length;i++){
+      if (ph[i]!=null){ prevPH=lastPH; lastPH=ph[i]; if (prevPH!=null) cur = lastPH>prevPH?1:lastPH<prevPH?-1:cur; }
+      if (pl[i]!=null){ prevPL=lastPL; lastPL=pl[i]; if (prevPL!=null) cur = lastPL<prevPL?-1:lastPL>prevPL?1:cur; }
+      trend[i]=cur;
+    }
+    return trend;
+  }
+
+  function aggregate(candles, groupSize){
+    const macro=[], macroStartIndex=[];
+    for (let i=0;i<candles.length;i+=groupSize){
+      const group = candles.slice(i,i+groupSize);
+      macro.push({
+        t:group[0].t, o:group[0].o, c:group[group.length-1].c,
+        h:Math.max(...group.map(x=>x.h)), l:Math.min(...group.map(x=>x.l)),
+        v:group.reduce((s,x)=>s+x.v,0),
+      });
+      macroStartIndex.push(i);
+    }
+    return { macro, macroStartIndex };
+  }
+
+  function atrSeries(candles, len){
+    const tr = candles.map((c,i)=>{
+      if (i===0) return c.h-c.l;
+      const pc = candles[i-1].c;
+      return Math.max(c.h-c.l, Math.abs(c.h-pc), Math.abs(c.l-pc));
+    });
+    const atr = new Array(candles.length).fill(null);
+    let seed=0;
+    for (let i=0;i<candles.length;i++){
+      if (i<len){ seed+=tr[i]; if (i===len-1) atr[i]=seed/len; continue; }
+      atr[i] = (atr[i-1]*(len-1)+tr[i])/len;
+    }
+    return atr;
+  }
+
+  function smaSeries(values, len){
+    const out = new Array(values.length).fill(null);
+    let sum=0;
+    for (let i=0;i<values.length;i++){
+      sum+=values[i];
+      if (i>=len) sum-=values[i-len];
+      if (i>=len-1) out[i]=sum/len;
+    }
+    return out;
+  }
+
+  function runPipeline(candles, p){
+    const { macro, macroStartIndex } = aggregate(candles, p.macroAggBars);
+    const macroTrendSeries = structureTrend(macro, p.macroSwingLen);
+    const microMacroTrend = new Array(candles.length).fill(0);
+    for (let m=0;m<macro.length;m++){
+      const confirmedAt = macroStartIndex[Math.min(m+p.macroSwingLen, macro.length-1)];
+      const from = macroStartIndex[m] + p.macroAggBars;
+      const value = macroTrendSeries[m];
+      for (let i=Math.max(from,confirmedAt);i<candles.length;i++) microMacroTrend[i]=value;
+    }
+
+    const { ph: microPH, pl: microPL } = computePivots(candles, p.microSwingLen);
+    const atr = atrSeries(candles, p.atrLen);
+    const volumes = candles.map(c=>c.v);
+    const volSma = smaSeries(volumes, p.volSmaLen);
+
+    let microTrend=0, lastSwingHigh=null, lastSwingLow=null, waveCount=0, corrective=false;
+    const signals = [];
+    const barMeta = [];
+
+    for (let i=0;i<candles.length;i++){
+      const c = candles[i];
+      let bosUp=false, bosDown=false, chochUp=false, chochDown=false;
+
+      if (microPH[i]!=null) lastSwingHigh = microPH[i];
+      if (microPL[i]!=null) lastSwingLow = microPL[i];
+
+      if (lastSwingHigh!=null && i>0 && candles[i-1].c<=lastSwingHigh && c.c>lastSwingHigh){
+        if (microTrend>=0) bosUp=true; else chochUp=true;
+        microTrend=1;
+      }
+      if (lastSwingLow!=null && i>0 && candles[i-1].c>=lastSwingLow && c.c<lastSwingLow){
+        if (microTrend<=0) bosDown=true; else chochDown=true;
+        microTrend=-1;
+      }
+
+      const waveEvent = microPH[i]!=null || microPL[i]!=null;
+      if (chochUp||chochDown){ waveCount=1; corrective=false; }
+      else if (waveEvent){ waveCount+=1; if (waveCount>5){ waveCount=1; corrective=!corrective; } }
+      const waveLabel = corrective ? ["A","B","C"][(waveCount-1)%3] : String(waveCount||1);
+
+      const volRatio = volSma[i] ? volumes[i]/volSma[i] : 0;
+      const volOk = volRatio >= p.volMult;
+      const macroTrendHere = microMacroTrend[i];
+
+      const longTrigger = (bosUp||chochUp) && volOk && macroTrendHere===1 && microTrend===1;
+      const shortTrigger = (bosDown||chochDown) && volOk && macroTrendHere===-1 && microTrend===-1;
+
+      barMeta.push({ i, ph:microPH[i], pl:microPL[i], waveLabel: waveEvent?waveLabel:null,
+        bosUp,bosDown,chochUp,chochDown, macroTrend:macroTrendHere, microTrend, volRatio, volOk });
+
+      if ((longTrigger||shortTrigger) && atr[i]!=null){
+        const entry = c.c;
+        let sl, tp, side, event;
+        if (longTrigger){
+          side="BUY"; event = chochUp?"CHOCH":"BOS";
+          sl = Math.min(lastSwingLow ?? entry, entry) - atr[i]*p.atrBuffer;
+          tp = entry + (entry-sl)*p.rrRatio;
+        } else {
+          side="SELL"; event = chochDown?"CHOCH":"BOS";
+          sl = Math.max(lastSwingHigh ?? entry, entry) + atr[i]*p.atrBuffer;
+          tp = entry - (sl-entry)*p.rrRatio;
+        }
+        signals.push({ i, t:c.t, side, event, waveLabel, volRatio, entry:round2(entry), sl:round2(sl), tp:round2(tp), rr:p.rrRatio });
+      }
+    }
+    return { macro, barMeta, signals, atr, volSma };
+  }
+
+  function riskGate(signals, cfg){
+    const passed = [];
+    const results = [];
+    for (const s of signals){
+      const dayKey = new Date(s.t).toISOString().slice(0,10);
+      const cutoff = s.t - 86400000;
+      const recent = passed.filter(p=>p.t>cutoff);
+      let verdict="PASS", reason=null;
+      const cooldownMs = cfg.cooldownMinutes*60000;
+      for (let k=recent.length-1;k>=0;k--){
+        const p = recent[k];
+        if (p.side===s.side && p.event===s.event){
+          if (s.t-p.t < cooldownMs){ verdict="BLOCK"; reason=`duplicado: mesmo lado/evento há menos de ${cfg.cooldownMinutes} min`; }
+          break;
+        }
+      }
+      if (verdict==="PASS"){
+        const todayCount = recent.filter(p=>new Date(p.t).toISOString().slice(0,10)===dayKey).length;
+        if (todayCount>=cfg.maxSignalsPerDay){ verdict="BLOCK"; reason=`limite diário de ${cfg.maxSignalsPerDay} sinais atingido`; }
+      }
+      if (verdict==="PASS" && s.rr<cfg.minRR){ verdict="BLOCK"; reason=`R:R ${s.rr.toFixed(1)} abaixo do mínimo configurado (${cfg.minRR})`; }
+      if (verdict==="PASS"){
+        const stopDist = Math.abs(s.entry-s.sl);
+        if (stopDist<cfg.minStopUsd){ verdict="BLOCK"; reason=`stop a ${stopDist.toFixed(2)} USD do preço, abaixo do mínimo (${cfg.minStopUsd})`; }
+        else if (stopDist>cfg.maxStopUsd){ verdict="BLOCK"; reason=`stop a ${stopDist.toFixed(2)} USD do preço, acima do máximo (${cfg.maxStopUsd})`; }
+      }
+      if (verdict==="PASS") passed.push(s);
+      results.push(Object.assign({}, s, { verdict, reason }));
+    }
+    return results;
+  }
+
+  // tamanho sugerido: risco% da conta / distância do stop, convertido pra lotes (trader-budget adaptado pra 1 instrumento)
+  function positionSize(sig, accountSize, riskPercent, contractSize){
+    const riskUsd = accountSize * (riskPercent/100);
+    const stopDist = Math.abs(sig.entry - sig.sl);
+    if (!(stopDist>0)) return null;
+    const oz = riskUsd / stopDist;
+    const lots = contractSize>0 ? oz/contractSize : null;
+    return { riskUsd, oz, lots };
+  }
+
+  // ticket de execução manual — mesmo padrão do trader-broker: só mostra, nunca manda ordem
+  function formatTicket(sig, size){
+    const sideLabel = sig.side==="BUY" ? "COMPRA" : "VENDA";
+    const sizeLine = size ? "Tamanho sugerido: "+size.oz.toFixed(2)+" oz"+(size.lots!=null?" ("+size.lots.toFixed(2)+" lote(s) de "+el("contractSize").value+" oz)":"")+" — risco "+size.riskUsd.toFixed(2)+" USD" : "";
+    return sideLabel+" XAUUSD — "+sig.event+" (onda "+sig.waveLabel+", vol "+sig.volRatio.toFixed(2)+"x)\n"+
+      "Entrada ~"+sig.entry.toFixed(2)+" | Stop "+sig.sl.toFixed(2)+" | Alvo "+sig.tp.toFixed(2)+" | R:R "+sig.rr.toFixed(1)+
+      (sizeLine?"\n"+sizeLine:"")+
+      "\nNinguém executa isso por você — confira na sua corretora antes de operar.";
+  }
+
+  // ---------- estado da página ----------
+  const DEFAULTS = {
+    macroAggBars:16, macroSwingLen:8, microSwingLen:5, volSmaLen:20, volMult:1.5,
+    atrLen:14, atrBuffer:0.25, rrRatio:2.0,
+    cooldownMinutes:15, maxSignalsPerDay:6, minRR:1.5, minStopUsd:1.0, maxStopUsd:50.0,
+  };
+  const STRESS = { cooldownMinutes:60, maxSignalsPerDay:1, minRR:2.5, minStopUsd:1.0, maxStopUsd:50.0 };
+
+  let demoData = generateDemoData();
+  let customData = null;
+  let usingCustom = false;
+
+  const el = (id)=>document.getElementById(id);
+  const ids = Object.keys(DEFAULTS);
+
+  function readParams(){
+    const p = {};
+    for (const id of ids) p[id] = parseFloat(el(id).value);
+    return p;
+  }
+  function writeParams(vals){
+    for (const id of ids) el(id).value = vals[id];
+  }
+
+  function currentCandles(){ return usingCustom && customData && customData.length ? customData : demoData; }
+
+  // ---------- gráfico ----------
+  const STEP = 7, CANDLE_W = 5, PRICE_H = 320, VOL_H = 90;
+  const tooltip = el("tooltip");
+  let markers = []; // para hit-test do tooltip
+
+  function niceTicks(min, max, count){
+    const range = max-min || 1;
+    const rough = range/count;
+    const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+    const norm = rough/mag;
+    const step = (norm<1.5?1:norm<3?2:norm<7?5:10)*mag;
+    const ticks = [];
+    let v = Math.ceil(min/step)*step;
+    for (; v<=max; v+=step) ticks.push(v);
+    return ticks;
+  }
+
+  function draw(){
+    const candles = currentCandles();
+    el("demoBarCount").textContent = demoData.length;
+    const p = readParams();
+    const result = runPipeline(candles, p);
+    const graded = riskGate(result.signals, p);
+
+    renderSummary(candles, result, graded);
+    renderChart(candles, result, graded, p);
+    renderTable(graded);
+    renderTicket(graded);
+  }
+
+  function renderTicket(graded){
+    const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS");
+    const card = el("ticketCard");
+    if (!lastPass){
+      card.innerHTML = '<div class="ticket-head empty"><strong>Sem sinal aprovado ainda</strong></div>'+
+        '<div class="ticket-body"><p class="controls-note">Ajuste os parâmetros ou carregue dados reais — quando um sinal passar pelo filtro de risco, o ticket aparece aqui.</p></div>';
+      return;
+    }
+    const accountSize = parseFloat(el("accountSize").value)||0;
+    const riskPercent = parseFloat(el("riskPercentTrade").value)||0;
+    const contractSize = parseFloat(el("contractSize").value)||0;
+    const size = positionSize(lastPass, accountSize, riskPercent, contractSize);
+    const when = new Date(lastPass.t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    card.innerHTML =
+      '<div class="ticket-head '+(lastPass.side==="BUY"?"buy":"sell")+'"><strong>'+(lastPass.side==="BUY"?"COMPRA":"VENDA")+' XAUUSD — '+lastPass.event+'</strong><span>'+when+'</span></div>'+
+      '<div class="ticket-body">'+
+        '<div class="ticket-levels">'+
+          '<div class="lvl"><span class="k">Entrada</span><span class="v">'+lastPass.entry.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">Stop</span><span class="v">'+lastPass.sl.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">Alvo</span><span class="v">'+lastPass.tp.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">R:R</span><span class="v">'+lastPass.rr.toFixed(1)+'</span></div>'+
+        '</div>'+
+        (size ? '<div class="ticket-size">Tamanho sugerido: <strong>'+size.oz.toFixed(2)+' oz</strong>'+
+          (contractSize>0?' ('+size.lots.toFixed(2)+' lote(s) de '+contractSize+' oz)':'')+
+          ' — arrisca <strong>'+size.riskUsd.toFixed(2)+' USD</strong> ('+riskPercent.toFixed(1)+'% de '+accountSize.toFixed(0)+')</div>' : '')+
+        '<div class="ticket-actions">'+
+          '<button id="btnCopyTicket">Copiar ticket</button>'+
+          '<button id="btnLogTicket" class="primary">Registrar execução</button>'+
+          '<span class="copy-ok" id="ticketCopyOk" hidden>copiado ✓</span>'+
+        '</div>'+
+      '</div>';
+    el("btnCopyTicket").addEventListener("click", ()=>{
+      const text = formatTicket(lastPass, size);
+      navigator.clipboard?.writeText(text).then(()=>{
+        const ok = el("ticketCopyOk"); ok.hidden=false; setTimeout(()=>ok.hidden=true, 1800);
+      }).catch(()=>{});
+    });
+    el("btnLogTicket").addEventListener("click", ()=>{
+      el("tfSide").value = lastPass.side;
+      el("tfEntry").value = lastPass.entry.toFixed(2);
+      el("tfExit").value = "";
+      el("tfSize").value = size ? size.oz.toFixed(2) : "1";
+      el("tfEntry").scrollIntoView({behavior:"smooth", block:"center"});
+    });
+  }
+
+  // ---------- COT report (CFTC) — busca direto do navegador, não passa por mim ----------
+  // trader-copycat adaptado: em vez de 13F de um gestor, segue o posicionamento semanal
+  // real dos grandes especuladores (non-commercial) em futuros de ouro no COMEX.
+  const COT_URL = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
+    + "?$where=" + encodeURIComponent("commodity_name='GOLD' AND futonly_or_combined='FutOnly' AND contract_market_name='GOLD'")
+    + "&$order=" + encodeURIComponent("report_date_as_yyyy_mm_dd DESC")
+    + "&$limit=2";
+
+  async function loadCot(){
+    const box = el("cotBox");
+    box.innerHTML = '<p class="controls-note">Buscando o relatório mais recente da CFTC…</p>';
+    try {
+      const resp = await fetch(COT_URL);
+      if (!resp.ok) throw new Error("HTTP "+resp.status);
+      const rows = await resp.json();
+      if (!rows.length) throw new Error("resposta vazia");
+      const [latest, prev] = rows;
+      const netNow = (+latest.noncomm_positions_long_all) - (+latest.noncomm_positions_short_all);
+      const netPrev = prev ? (+prev.noncomm_positions_long_all) - (+prev.noncomm_positions_short_all) : null;
+      const netChange = netPrev!=null ? netNow-netPrev : null;
+      const dateLabel = new Date(latest.report_date_as_yyyy_mm_dd).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});
+      const dir = netNow>=0 ? "comprados" : "vendidos";
+      box.innerHTML =
+        '<div class="summary-grid">'+
+          '<div class="stat"><span class="label">Relatório de</span><span class="value">'+dateLabel+'</span></div>'+
+          '<div class="stat"><span class="label">Especuladores (non-commercial)</span><span class="value '+(netNow>=0?"up":"down")+'">'+Math.abs(netNow).toLocaleString("pt-BR")+' líq. '+dir+'</span></div>'+
+          '<div class="stat"><span class="label">Variação na semana</span><span class="value '+(netChange==null?"":netChange>=0?"up":"down")+'">'+(netChange==null?"—":(netChange>=0?"+":"")+netChange.toLocaleString("pt-BR")+" contratos")+'</span></div>'+
+          '<div class="stat"><span class="label">Open interest</span><span class="value">'+(+latest.open_interest_all).toLocaleString("pt-BR")+'</span></div>'+
+        '</div>'+
+        '<p class="controls-note" style="margin-top:10px">Fato publicado, não previsão — mostra onde os grandes especuladores estavam posicionados na data do relatório, não onde estarão.</p>';
+    } catch (err){
+      box.innerHTML =
+        '<p class="controls-note" style="color:var(--block)">Não consegui buscar agora ('+(err.message||err)+'). '+
+        'Se você estiver vendo esta página dentro do Claude (claude.ai), isso é esperado — o sandbox de artefato bloqueia '+
+        'a busca mesmo a CFTC permitindo. Abra o arquivo .html direto no seu navegador, com internet, pra funcionar.</p>';
+    }
+  }
+  el("btnCotRefresh").addEventListener("click", loadCot);
+  loadCot();
+
+  // ---------- relógio de sessão (hora real do navegador, não dos dados carregados) ----------
+  function updateSessionClock(){
+    const now = new Date();
+    const day = now.getUTCDay(); // 0=domingo .. 6=sábado
+    const h = now.getUTCHours(), m = now.getUTCMinutes();
+    const minutesNow = h*60+m;
+    const closeFriday = 22*60; // sexta 22:00 UTC
+    const openSunday = 22*60;  // domingo 22:00 UTC
+    let isOpen;
+    if (day===6) isOpen = false;
+    else if (day===5) isOpen = minutesNow < closeFriday;
+    else if (day===0) isOpen = minutesNow >= openSunday;
+    else isOpen = true;
+
+    let sessionLabel;
+    if (!isOpen) sessionLabel = "mercado fechado";
+    else if (h>=13 && h<17) sessionLabel = "Londres + NY (maior liquidez)";
+    else if (h>=8 && h<17) sessionLabel = "Londres";
+    else if (h>=13 && h<22) sessionLabel = "Nova York";
+    else sessionLabel = "Ásia";
+
+    const marketEl = el("sessionMarket"), nowEl = el("sessionNow"), warnEl = el("sessionGapWarning");
+    marketEl.textContent = isOpen ? "Mercado aberto" : "Mercado fechado (fim de semana)";
+    marketEl.className = "session-badge "+(isOpen?"open":"closed");
+    nowEl.textContent = now.toUTCString().slice(17,22)+" UTC · "+sessionLabel;
+
+    const minsToFridayClose = day===5 ? closeFriday-minutesNow : Infinity;
+    const minsSinceSundayOpen = day===0 ? minutesNow-openSunday : Infinity;
+    const nearGap = (minsToFridayClose>=0 && minsToFridayClose<=120) || (minsSinceSundayOpen>=0 && minsSinceSundayOpen<=120);
+    warnEl.hidden = !nearGap;
+  }
+
+  function trendLabel(v){ return v===1?"ALTA":v===-1?"BAIXA":"NEUTRO"; }
+
+  function renderSummary(candles, result, graded){
+    const lastMeta = result.barMeta[result.barMeta.length-1];
+    el("statMacro").textContent = trendLabel(lastMeta.macroTrend);
+    el("statMacro").className = "value "+(lastMeta.macroTrend===1?"up":lastMeta.macroTrend===-1?"down":"");
+    el("statMicro").textContent = trendLabel(lastMeta.microTrend);
+    el("statMicro").className = "value "+(lastMeta.microTrend===1?"up":lastMeta.microTrend===-1?"down":"");
+    const lastWave = [...result.barMeta].reverse().find(b=>b.waveLabel)?.waveLabel || "—";
+    el("statWave").textContent = lastWave;
+    el("statPass").textContent = graded.filter(g=>g.verdict==="PASS").length;
+    el("statBlock").textContent = graded.filter(g=>g.verdict==="BLOCK").length;
+    const last = graded[graded.length-1];
+    const lastEl = el("statLast");
+    if (!last){ lastEl.innerHTML = '<span class="badge neutral">sem sinais ainda</span>'; }
+    else if (last.verdict==="PASS"){ lastEl.innerHTML = '<span class="badge pass">PASS · '+last.side+' '+last.event+'</span>'; }
+    else { lastEl.innerHTML = '<span class="badge block" title="'+last.reason+'">BLOCK · '+last.reason+'</span>'; }
+  }
+
+  function renderChart(candles, result, graded, p){
+    const n = candles.length;
+    const width = n*STEP + 20;
+    const dpr = Math.min(window.devicePixelRatio||1, 2);
+    const inner = el("chartInner");
+    inner.style.width = width+"px";
+
+    const priceCanvas = el("priceCanvas"), volCanvas = el("volCanvas");
+    [priceCanvas, volCanvas].forEach((cv, idx)=>{
+      const h = idx===0?PRICE_H:VOL_H;
+      cv.style.width = width+"px"; cv.style.height = h+"px";
+      cv.width = width*dpr; cv.height = h*dpr;
+    });
+    const ctx = priceCanvas.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+    const vctx = volCanvas.getContext("2d"); vctx.setTransform(dpr,0,0,dpr,0,0);
+    ctx.clearRect(0,0,width,PRICE_H); vctx.clearRect(0,0,width,VOL_H);
+
+    const cs = getComputedStyle(document.body);
+    const col = (name)=>cs.getPropertyValue(name).trim();
+    const colUp=col("--up"), colDown=col("--down"), colMuted=col("--muted"), colBorder=col("--border"),
+          colAccent=col("--accent"), colFg=col("--fg"), colPassSoft=col("--pass-soft"), colBlockSoft=col("--block-soft");
+
+    const lo = Math.min(...candles.map(c=>c.l)), hi = Math.max(...candles.map(c=>c.h));
+    const pad = (hi-lo)*0.08;
+    const yMin = lo-pad, yMax = hi+pad;
+    const yOf = (price)=> PRICE_H - ((price-yMin)/(yMax-yMin))*PRICE_H;
+    const xOf = (i)=> 10 + i*STEP + STEP/2;
+
+    // faixas de tendência macro (fundo), mescla barras contíguas do mesmo valor
+    let runStart=0, runVal=result.barMeta[0].macroTrend;
+    for (let i=1;i<=n;i++){
+      const v = i<n ? result.barMeta[i].macroTrend : null;
+      if (v!==runVal){
+        if (runVal!==0){
+          ctx.fillStyle = runVal===1?colPassSoft:colBlockSoft;
+          ctx.globalAlpha = 0.55;
+          ctx.fillRect(10+runStart*STEP, 0, (i-runStart)*STEP, PRICE_H);
+          ctx.globalAlpha = 1;
+        }
+        runStart=i; runVal=v;
+      }
+    }
+
+    // velas
+    for (let i=0;i<n;i++){
+      const c = candles[i];
+      const x = xOf(i);
+      const up = c.c>=c.o;
+      ctx.strokeStyle = up?colUp:colDown;
+      ctx.fillStyle = up?colUp:colDown;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, yOf(c.h)); ctx.lineTo(x, yOf(c.l)); ctx.stroke();
+      const bodyTop = yOf(Math.max(c.o,c.c)), bodyBot = yOf(Math.min(c.o,c.c));
+      ctx.fillRect(x-CANDLE_W/2, bodyTop, CANDLE_W, Math.max(1, bodyBot-bodyTop));
+    }
+
+    // pivôs + onda
+    ctx.font = "10px "+cs.getPropertyValue("--font-mono");
+    ctx.textAlign = "center";
+    for (let i=0;i<n;i++){
+      const b = result.barMeta[i];
+      if (!b.waveLabel) continue;
+      const x = xOf(i);
+      if (b.ph!=null){ ctx.fillStyle=colMuted; ctx.fillText(b.waveLabel, x, yOf(b.ph)-6); }
+      if (b.pl!=null){ ctx.fillStyle=colMuted; ctx.fillText(b.waveLabel, x, yOf(b.pl)+14); }
+    }
+
+    // gatilhos BOS/CHoCH -> triângulo sólido (PASS) ou contorno (BLOCK)
+    markers = [];
+    for (const g of graded){
+      const x = xOf(g.i);
+      const up = g.side==="BUY";
+      const y = up ? yOf(candles[g.i].l)+16 : yOf(candles[g.i].h)-16;
+      const color = up?colUp:colDown;
+      ctx.beginPath();
+      if (up){ ctx.moveTo(x,y-6); ctx.lineTo(x-6,y+5); ctx.lineTo(x+6,y+5); }
+      else { ctx.moveTo(x,y+6); ctx.lineTo(x-6,y-5); ctx.lineTo(x+6,y-5); }
+      ctx.closePath();
+      if (g.verdict==="PASS"){ ctx.fillStyle=color; ctx.fill(); }
+      else { ctx.strokeStyle=color; ctx.lineWidth=1.4; ctx.stroke(); }
+      markers.push({ x, y, r:9, sig:g });
+    }
+
+    // níveis do último sinal aprovado
+    const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS");
+    if (lastPass){
+      const x0 = xOf(lastPass.i);
+      ctx.setLineDash([4,3]); ctx.lineWidth=1;
+      const lines = [["entry",lastPass.entry,colMuted],["sl",lastPass.sl,colDown],["tp",lastPass.tp,colUp]];
+      for (const [label, price, color] of lines){
+        const y = yOf(price);
+        ctx.strokeStyle=color;
+        ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(width-10,y); ctx.stroke();
+        ctx.fillStyle=color; ctx.font="10px "+cs.getPropertyValue("--font-mono"); ctx.textAlign="left";
+        ctx.fillText(label+" "+price.toFixed(2), width-180, y-3);
+      }
+      ctx.setLineDash([]);
+    }
+
+    // volume
+    const maxVol = Math.max(...candles.map(c=>c.v));
+    for (let i=0;i<n;i++){
+      const c = candles[i], b = result.barMeta[i];
+      const x = xOf(i);
+      const h = (c.v/maxVol)*(VOL_H-14);
+      vctx.fillStyle = b.volOk ? colAccent : colMuted;
+      vctx.globalAlpha = b.volOk ? 0.9 : 0.35;
+      vctx.fillRect(x-CANDLE_W/2, VOL_H-h, CANDLE_W, h);
+    }
+    vctx.globalAlpha = 1;
+    vctx.strokeStyle = colMuted; vctx.lineWidth=1; vctx.beginPath();
+    for (let i=0;i<n;i++){
+      if (result.volSma[i]==null) continue;
+      const x = xOf(i), y = VOL_H - (result.volSma[i]/maxVol)*(VOL_H-14);
+      if (i===0 || result.volSma[i-1]==null) vctx.moveTo(x,y); else vctx.lineTo(x,y);
+    }
+    vctx.stroke();
+
+    // eixo de tempo
+    const axisRow = el("axisRow");
+    axisRow.innerHTML = "";
+    axisRow.style.width = width+"px";
+    const everyN = Math.ceil(n/18);
+    for (let i=0;i<n;i+=everyN){
+      const d = new Date(candles[i].t);
+      const label = d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" "+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"});
+      const tick = document.createElement("span");
+      tick.className = "axis-label";
+      tick.style.left = xOf(i)+"px";
+      tick.textContent = label;
+      axisRow.appendChild(tick);
+    }
+  }
+
+  function renderTable(graded){
+    const body = el("signalsBody");
+    body.innerHTML = "";
+    for (const g of [...graded].reverse()){
+      const tr = document.createElement("tr");
+      const when = new Date(g.t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+      const verdictCell = g.verdict==="PASS"
+        ? '<details class="wa"><summary><span class="badge pass">PASS</span> ver ticket</summary><pre>'+formatTicket(g, positionSize(g, parseFloat(el("accountSize").value)||0, parseFloat(el("riskPercentTrade").value)||0, parseFloat(el("contractSize").value)||0)).replace(/</g,"&lt;")+'</pre></details>'
+        : '<span class="badge block" title="'+g.reason+'">BLOCK</span><div class="controls-note">'+g.reason+'</div>';
+      tr.innerHTML = "<td>"+when+"</td><td>"+g.side+"</td><td>"+g.event+"</td><td>"+g.waveLabel+"</td>"+
+        "<td>"+g.volRatio.toFixed(2)+"x</td><td>"+g.entry.toFixed(2)+"</td><td>"+g.sl.toFixed(2)+"</td>"+
+        "<td>"+g.tp.toFixed(2)+"</td><td>"+g.rr.toFixed(1)+"</td><td>"+verdictCell+"</td>";
+      body.appendChild(tr);
+    }
+    if (!graded.length){
+      body.innerHTML = '<tr><td colspan="10" class="controls-note">Nenhum sinal com os parâmetros atuais — tente diminuir a sensibilidade dos pivôs ou o volume mínimo.</td></tr>';
+    }
+  }
+
+  // ---------- interação ----------
+  let recalcTimer = null;
+  function scheduleRecalc(){ clearTimeout(recalcTimer); recalcTimer = setTimeout(draw, 120); }
+
+  for (const id of ids) el(id).addEventListener("input", scheduleRecalc);
+
+  el("btnReset").addEventListener("click", ()=>{ writeParams(DEFAULTS); draw(); });
+  el("btnStress").addEventListener("click", ()=>{
+    const cur = readParams();
+    writeParams(Object.assign({}, cur, STRESS));
+    draw();
+  });
+
+  el("tabDemo").addEventListener("click", ()=>{ usingCustom=false; setTab("tabDemo"); draw(); });
+  el("tabCustom").addEventListener("click", ()=>{ setTab("tabCustom"); });
+  function setTab(which){
+    el("tabDemo").setAttribute("aria-selected", which==="tabDemo");
+    el("tabCustom").setAttribute("aria-selected", which==="tabCustom");
+    el("panelDemo").hidden = which!=="tabDemo";
+    el("panelCustom").hidden = which!=="tabCustom";
+  }
+
+  el("applyCsv").addEventListener("click", ()=>{
+    const status = el("csvStatus");
+    const { candles: parsed, volumeIsProxy } = parseCsv(el("csvInput").value);
+    if (parsed.length < 40){
+      status.textContent = "Reconheci "+parsed.length+" candle(s) válido(s) — cole pelo menos ~40 para os pivôs terem janela suficiente.";
+      status.style.color = "var(--block)";
+      return;
+    }
+    customData = parsed; usingCustom = true; draw();
+    const first = new Date(parsed[0].t), last = new Date(parsed[parsed.length-1].t);
+    const fmt = (d)=>d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
+    status.style.color = "var(--pass)";
+    status.textContent = parsed.length+" candles carregados, de "+fmt(first)+" a "+fmt(last)+
+      (volumeIsProxy ? " — sem coluna de volume no arquivo, usando um proxy pelo range do candle." : " — volume real do arquivo.");
+  });
+  el("csvFile").addEventListener("change", (e)=>{
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{ el("csvInput").value = reader.result; };
+    reader.readAsText(file);
+  });
+
+  // tooltip nos gatilhos
+  el("priceCanvas").addEventListener("mousemove", (e)=>{
+    const rect = e.target.getBoundingClientRect();
+    const x = e.clientX-rect.left, y = e.clientY-rect.top;
+    const hit = markers.find(m=>Math.hypot(m.x-x, m.y-y) < m.r+3);
+    if (!hit){ tooltip.hidden = true; return; }
+    const g = hit.sig;
+    tooltip.hidden = false;
+    tooltip.style.left = e.clientX+14+"px";
+    tooltip.style.top = e.clientY+14+"px";
+    tooltip.innerHTML = g.side+" "+g.event+" · onda "+g.waveLabel+"<br>vol "+g.volRatio.toFixed(2)+"x · R:R "+g.rr.toFixed(1)+
+      "<br>entrada "+g.entry.toFixed(2)+" · stop "+g.sl.toFixed(2)+" · alvo "+g.tp.toFixed(2)+
+      "<br><strong>"+g.verdict+"</strong>"+(g.reason?" — "+g.reason:"");
+  });
+  el("priceCanvas").addEventListener("mouseleave", ()=>{ tooltip.hidden = true; });
+
+  window.addEventListener("resize", ()=>{ clearTimeout(recalcTimer); recalcTimer=setTimeout(draw, 200); });
+
+  // ticket: recalcula ao vivo quando os campos de tamanho/conta mudam
+  for (const id of ["accountSize","riskPercentTrade","contractSize"]) el(id).addEventListener("input", scheduleRecalc);
+
+  // ---------- registro de operações (localStorage — só neste navegador) ----------
+  const TRADES_KEY = "xau-sim-trades";
+  function loadTrades(){
+    try { return JSON.parse(localStorage.getItem(TRADES_KEY) || "[]"); }
+    catch { return []; }
+  }
+  function saveTrades(trades){
+    try { localStorage.setItem(TRADES_KEY, JSON.stringify(trades)); } catch {}
+  }
+  function renderTrades(){
+    const trades = loadTrades();
+    const body = el("tradesBody");
+    body.innerHTML = "";
+    let total = 0;
+    trades.forEach((t, idx)=>{
+      const pnl = (t.exit - t.entry) * t.size * (t.side==="BUY"?1:-1);
+      total += pnl;
+      const tr = document.createElement("tr");
+      const when = new Date(t.ts).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+      tr.innerHTML = "<td>"+when+"</td><td>"+t.side+"</td><td>"+t.entry.toFixed(2)+"</td><td>"+t.exit.toFixed(2)+"</td><td>"+t.size.toFixed(2)+"</td>"+
+        '<td class="'+(pnl>=0?"pnl-pos":"pnl-neg")+'">'+(pnl>=0?"+":"")+pnl.toFixed(2)+'</td>'+
+        '<td><button class="trade-del" data-idx="'+idx+'" title="remover">✕</button></td>';
+      body.appendChild(tr);
+    });
+    if (!trades.length){
+      body.innerHTML = '<tr><td colspan="7" class="controls-note">Nenhuma operação registrada ainda.</td></tr>';
+    }
+    const note = el("tradesTotalNote");
+    note.innerHTML = trades.length ? "Total realizado: <strong class=\""+(total>=0?"pnl-pos":"pnl-neg")+"\">"+(total>=0?"+":"")+total.toFixed(2)+" USD</strong> em "+trades.length+" operação(ões) — salvo só neste navegador." : "";
+    body.querySelectorAll(".trade-del").forEach(btn=>{
+      btn.addEventListener("click", ()=>{
+        const trades = loadTrades();
+        trades.splice(parseInt(btn.dataset.idx,10), 1);
+        saveTrades(trades);
+        renderTrades();
+      });
+    });
+  }
+  el("tfAdd").addEventListener("click", ()=>{
+    const entry = parseFloat(el("tfEntry").value), exit = parseFloat(el("tfExit").value), size = parseFloat(el("tfSize").value);
+    if ([entry,exit,size].some(x=>Number.isNaN(x))){ return; }
+    const trades = loadTrades();
+    trades.push({ ts: Date.now(), side: el("tfSide").value, entry, exit, size });
+    saveTrades(trades);
+    el("tfEntry").value=""; el("tfExit").value=""; el("tfSize").value="1";
+    renderTrades();
+  });
+  renderTrades();
+
+  writeParams(DEFAULTS);
+  draw();
+  updateSessionClock();
+  setInterval(updateSessionClock, 30000);
+})();
+</script>
