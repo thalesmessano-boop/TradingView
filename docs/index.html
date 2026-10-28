@@ -63,6 +63,11 @@
   .badge{font-family:var(--font-mono);font-size:.74rem;padding:3px 9px;border-radius:999px;display:inline-flex;gap:5px;align-items:center;width:fit-content}
   .badge.pass{background:var(--pass-soft);color:var(--pass)} .badge.block{background:var(--block-soft);color:var(--block)}
   .badge.neutral{background:var(--border);color:var(--muted)}
+  .badge.pending{background:var(--accent-soft);color:var(--accent)}
+  .pending-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:.86rem}
+  .pending-row:last-child{border-bottom:none}
+  .ticket-adjust{background:var(--code-bg);border-radius:8px;padding:9px 12px;font-size:.78rem;color:var(--muted)}
+  .ticket-invalid{background:var(--block-soft);color:var(--block);border-radius:8px;padding:10px 14px;font-size:.84rem}
 
   /* legenda + gráfico */
   .legend{display:flex;flex-wrap:wrap;gap:14px;font-size:.76rem;color:var(--muted);margin-bottom:10px}
@@ -231,7 +236,18 @@
   </section>
 
   <section class="card">
-    <div class="section-head"><h2>Ticket</h2><p>O último sinal aprovado, pronto pra ler e operar na sua corretora — nunca executado por aqui.</p></div>
+    <div class="section-head">
+      <h2>Alertas (aguardando confirmação)</h2>
+      <p>Um rompimento de estrutura (BOS/CHoCH) aparece aqui no instante em que acontece — antes de confirmado.
+      Pra confirmar que o pivô que sustenta o sinal é mesmo o extremo, o sistema precisa esperar
+      <strong>2× a sensibilidade de pivô micro</strong> em candles (com os padrões: 10 candles de 15 min = 2h30).
+      Isso é pra você começar a observar o mercado cedo — não é ainda um ticket, pode mudar ou sumir até confirmar.</p>
+    </div>
+    <div id="pendingBox"><p class="controls-note">Nenhum alerta pendente agora.</p></div>
+  </section>
+
+  <section class="card">
+    <div class="section-head"><h2>Ticket</h2><p>O último sinal <strong>confirmado</strong>, com a entrada ajustada pro preço atual — pronto pra ler e operar na sua corretora, nunca executado por aqui.</p></div>
     <div class="controls-grid" style="margin-bottom:16px">
       <div class="field"><label for="accountSize">Conta (USD)</label><input type="number" id="accountSize" value="10000" min="0" step="100"></div>
       <div class="field"><label for="riskPercentTrade">Risco por operação (%)</label><input type="number" id="riskPercentTrade" value="1.0" min="0.1" step="0.1"></div>
@@ -262,7 +278,7 @@
     <div class="legend">
       <span><span class="swatch" style="background:var(--up)"></span>Compra (BOS/CHoCH de alta)</span>
       <span><span class="swatch" style="background:var(--down)"></span>Venda (BOS/CHoCH de baixa)</span>
-      <span>● sólido = PASS (ticket pronto) · ○ contorno = BLOCK</span>
+      <span>● sólido = PASS (ticket pronto) · ○ contorno = BLOCK · ◇ pontilhado = aguardando confirmação</span>
       <span><span class="swatch" style="background:var(--accent)"></span>Volume ≥ limiar</span>
       <span>faixa de fundo = tendência macro</span>
     </div>
@@ -630,36 +646,84 @@
     el("demoBarCount").textContent = demoData.length;
     const p = readParams();
     const result = runPipeline(candles, p);
-    const graded = riskGate(result.signals, p);
+
+    // um pivô só é confirmado depois de microSwingLen candles — damos uma margem
+    // extra (2x) antes de tratar o sinal como estrutura estável o bastante pra contar.
+    const confirmBars = p.microSwingLen * 2;
+    const lastIndex = candles.length - 1;
+    const pending = result.signals.filter(s => (lastIndex - s.i) < confirmBars);
+    const eligible = result.signals.filter(s => (lastIndex - s.i) >= confirmBars);
+    const graded = riskGate(eligible, p);
 
     renderSummary(candles, result, graded);
-    renderChart(candles, result, graded, p);
+    renderChart(candles, result, graded, pending, p);
     renderTable(graded);
-    renderTicket(graded);
+    renderPending(pending, candles, p);
+    renderTicket(graded, candles);
   }
 
-  function renderTicket(graded){
+  function renderPending(pending, candles, p){
+    const box = el("pendingBox");
+    if (!pending.length){ box.innerHTML = '<p class="controls-note">Nenhum alerta pendente agora.</p>'; return; }
+    const confirmBars = p.microSwingLen * 2;
+    const lastIndex = candles.length - 1;
+    box.innerHTML = [...pending].reverse().map(s=>{
+      const when = new Date(s.t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+      const barsLeft = confirmBars - (lastIndex - s.i);
+      const minsLeft = Math.max(0, barsLeft) * 15; // assume candle de 15min, mesma unidade dos dados
+      return '<div class="pending-row"><span class="badge pending">AGUARDANDO</span>'+
+        '<strong>'+s.side+' '+s.event+'</strong><span class="controls-note">formado às '+when+
+        ' · onda '+s.waveLabel+' · vol '+s.volRatio.toFixed(2)+'x · confirma em ~'+minsLeft+' min (se não mudar antes)</span></div>';
+    }).join("");
+  }
+
+  // depois que o sinal confirma, a entrada original já ficou pra trás no tempo —
+  // reancora o ticket no preço atual, mantendo o mesmo stop estrutural e o mesmo R:R.
+  // Se o preço já passou do stop original, o setup não é mais válido pra entrar.
+  function liveAdjustTicket(signal, candles){
+    const currentClose = candles[candles.length-1].c;
+    const invalidated = signal.side==="BUY" ? currentClose<=signal.sl : currentClose>=signal.sl;
+    if (invalidated) return { invalidated:true, originalEntry:signal.entry, sl:signal.sl, currentClose };
+    const risk = Math.abs(currentClose - signal.sl);
+    const tp = signal.side==="BUY" ? currentClose+risk*signal.rr : currentClose-risk*signal.rr;
+    return { invalidated:false, entry:currentClose, sl:signal.sl, tp, rr:signal.rr,
+      originalEntry:signal.entry, moved: Math.abs(currentClose-signal.entry) };
+  }
+
+  function renderTicket(graded, candles){
     const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS");
     const card = el("ticketCard");
     if (!lastPass){
-      card.innerHTML = '<div class="ticket-head empty"><strong>Sem sinal aprovado ainda</strong></div>'+
-        '<div class="ticket-body"><p class="controls-note">Ajuste os parâmetros ou carregue dados reais — quando um sinal passar pelo filtro de risco, o ticket aparece aqui.</p></div>';
+      card.innerHTML = '<div class="ticket-head empty"><strong>Sem sinal confirmado ainda</strong></div>'+
+        '<div class="ticket-body"><p class="controls-note">Ajuste os parâmetros ou carregue dados reais — quando um sinal passar pela confirmação e pelo filtro de risco, o ticket aparece aqui.</p></div>';
+      return;
+    }
+    const adj = liveAdjustTicket(lastPass, candles);
+    const when = new Date(lastPass.t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    if (adj.invalidated){
+      card.innerHTML =
+        '<div class="ticket-head empty"><strong>Último sinal confirmado já invalidou</strong><span>'+when+'</span></div>'+
+        '<div class="ticket-body"><div class="ticket-invalid">'+lastPass.side+' '+lastPass.event+' formado em '+adj.originalEntry.toFixed(2)+
+        ' — o preço já passou do stop original ('+adj.sl.toFixed(2)+') antes mesmo de confirmar. Preço atual: '+adj.currentClose.toFixed(2)+
+        '. Esse setup não vale mais pra entrada — espera o próximo sinal.</div></div>';
       return;
     }
     const accountSize = parseFloat(el("accountSize").value)||0;
     const riskPercent = parseFloat(el("riskPercentTrade").value)||0;
     const contractSize = parseFloat(el("contractSize").value)||0;
-    const size = positionSize(lastPass, accountSize, riskPercent, contractSize);
-    const when = new Date(lastPass.t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    const size = positionSize(adj, accountSize, riskPercent, contractSize);
     card.innerHTML =
       '<div class="ticket-head '+(lastPass.side==="BUY"?"buy":"sell")+'"><strong>'+(lastPass.side==="BUY"?"COMPRA":"VENDA")+' XAUUSD — '+lastPass.event+'</strong><span>'+when+'</span></div>'+
       '<div class="ticket-body">'+
         '<div class="ticket-levels">'+
-          '<div class="lvl"><span class="k">Entrada</span><span class="v">'+lastPass.entry.toFixed(2)+'</span></div>'+
-          '<div class="lvl"><span class="k">Stop</span><span class="v">'+lastPass.sl.toFixed(2)+'</span></div>'+
-          '<div class="lvl"><span class="k">Alvo</span><span class="v">'+lastPass.tp.toFixed(2)+'</span></div>'+
-          '<div class="lvl"><span class="k">R:R</span><span class="v">'+lastPass.rr.toFixed(1)+'</span></div>'+
+          '<div class="lvl"><span class="k">Entrada (preço atual)</span><span class="v">'+adj.entry.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">Stop</span><span class="v">'+adj.sl.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">Alvo</span><span class="v">'+adj.tp.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">R:R</span><span class="v">'+adj.rr.toFixed(1)+'</span></div>'+
         '</div>'+
+        '<div class="ticket-adjust">Estrutura formada em '+adj.originalEntry.toFixed(2)+' às '+when+
+          ' — entrada reajustada pro preço de agora ('+(adj.moved>=0?"+":"")+(adj.entry-adj.originalEntry>=0?"+":"")+(adj.entry-adj.originalEntry).toFixed(2)+
+          '), mantendo o mesmo stop estrutural e o mesmo R:R.</div>'+
         (size ? '<div class="ticket-size">Tamanho sugerido: <strong>'+size.oz.toFixed(2)+' oz</strong>'+
           (contractSize>0?' ('+size.lots.toFixed(2)+' lote(s) de '+contractSize+' oz)':'')+
           ' — arrisca <strong>'+size.riskUsd.toFixed(2)+' USD</strong> ('+riskPercent.toFixed(1)+'% de '+accountSize.toFixed(0)+')</div>' : '')+
@@ -670,14 +734,14 @@
         '</div>'+
       '</div>';
     el("btnCopyTicket").addEventListener("click", ()=>{
-      const text = formatTicket(lastPass, size);
+      const text = formatTicket({...lastPass, entry:adj.entry, sl:adj.sl, tp:adj.tp}, size);
       navigator.clipboard?.writeText(text).then(()=>{
         const ok = el("ticketCopyOk"); ok.hidden=false; setTimeout(()=>ok.hidden=true, 1800);
       }).catch(()=>{});
     });
     el("btnLogTicket").addEventListener("click", ()=>{
       el("tfSide").value = lastPass.side;
-      el("tfEntry").value = lastPass.entry.toFixed(2);
+      el("tfEntry").value = adj.entry.toFixed(2);
       el("tfExit").value = "";
       el("tfSize").value = size ? size.oz.toFixed(2) : "1";
       el("tfEntry").scrollIntoView({behavior:"smooth", block:"center"});
@@ -797,7 +861,7 @@
     else { lastEl.innerHTML = '<span class="badge block" title="'+last.reason+'">BLOCK · '+last.reason+'</span>'; }
   }
 
-  function renderChart(candles, result, graded, p){
+  function renderChart(candles, result, graded, pending, p){
     const n = candles.length;
     const width = n*STEP + 20;
     const dpr = Math.min(window.devicePixelRatio||1, 2);
@@ -878,6 +942,20 @@
       if (g.verdict==="PASS"){ ctx.fillStyle=color; ctx.fill(); }
       else { ctx.strokeStyle=color; ctx.lineWidth=1.4; ctx.stroke(); }
       markers.push({ x, y, r:9, sig:g });
+    }
+
+    // alertas ainda não confirmados -> losango pontilhado na cor de destaque
+    for (const s of pending){
+      const x = xOf(s.i);
+      const up = s.side==="BUY";
+      const y = up ? yOf(candles[s.i].l)+16 : yOf(candles[s.i].h)-16;
+      ctx.setLineDash([2,2]);
+      ctx.strokeStyle = colAccent; ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(x,y-7); ctx.lineTo(x-7,y); ctx.lineTo(x,y+7); ctx.lineTo(x+7,y); ctx.closePath();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      markers.push({ x, y, r:9, sig:s, pending:true });
     }
 
     // níveis do último sinal aprovado
@@ -1062,7 +1140,7 @@
     tooltip.style.top = e.clientY+14+"px";
     tooltip.innerHTML = g.side+" "+g.event+" · onda "+g.waveLabel+"<br>vol "+g.volRatio.toFixed(2)+"x · R:R "+g.rr.toFixed(1)+
       "<br>entrada "+g.entry.toFixed(2)+" · stop "+g.sl.toFixed(2)+" · alvo "+g.tp.toFixed(2)+
-      "<br><strong>"+g.verdict+"</strong>"+(g.reason?" — "+g.reason:"");
+      (hit.pending ? "<br><strong>AGUARDANDO CONFIRMAÇÃO</strong>" : "<br><strong>"+g.verdict+"</strong>"+(g.reason?" — "+g.reason:""));
   });
   el("priceCanvas").addEventListener("mouseleave", ()=>{ tooltip.hidden = true; });
 
