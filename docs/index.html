@@ -550,18 +550,24 @@
         bosUp,bosDown,chochUp,chochDown, macroTrend:macroTrendHere, microTrend, volRatio, volOk });
 
       if ((longTrigger||shortTrigger) && atr[i]!=null){
-        const entry = c.c;
-        let sl, tp, side, event;
+        const entryRaw = c.c;
+        let slRaw, tpRaw, side, event;
         if (longTrigger){
           side="BUY"; event = chochUp?"CHOCH":"BOS";
-          sl = Math.min(lastSwingLow ?? entry, entry) - atr[i]*p.atrBuffer;
-          tp = entry + (entry-sl)*p.rrRatio;
+          slRaw = Math.min(lastSwingLow ?? entryRaw, entryRaw) - atr[i]*p.atrBuffer;
+          tpRaw = entryRaw + (entryRaw-slRaw)*p.rrRatio;
         } else {
           side="SELL"; event = chochDown?"CHOCH":"BOS";
-          sl = Math.max(lastSwingHigh ?? entry, entry) + atr[i]*p.atrBuffer;
-          tp = entry - (sl-entry)*p.rrRatio;
+          slRaw = Math.max(lastSwingHigh ?? entryRaw, entryRaw) + atr[i]*p.atrBuffer;
+          tpRaw = entryRaw - (slRaw-entryRaw)*p.rrRatio;
         }
-        signals.push({ i, t:c.t, side, event, waveLabel, volRatio, entry:round2(entry), sl:round2(sl), tp:round2(tp), rr:p.rrRatio });
+        // arredonda entrada/stop/alvo pra 2 casas (o que a tela mostra) e SÓ DEPOIS deriva o R:R
+        // deles — senão o número da coluna R:R não bate com a conta que dá pra fazer a mão com
+        // os valores exibidos.
+        const entry = round2(entryRaw), sl = round2(slRaw), tp = round2(tpRaw);
+        const stopDist = Math.abs(entry-sl);
+        const rr = stopDist>0 ? round2(Math.abs(tp-entry)/stopDist) : p.rrRatio;
+        signals.push({ i, t:c.t, side, event, waveLabel, volRatio, entry, sl, tp, rr });
       }
     }
     return { macro, barMeta, signals, atr, volSma };
@@ -710,10 +716,16 @@
     const currentClose = candles[candles.length-1].c;
     const invalidated = signal.side==="BUY" ? currentClose<=signal.sl : currentClose>=signal.sl;
     if (invalidated) return { invalidated:true, originalEntry:signal.entry, sl:signal.sl, currentClose };
-    const risk = Math.abs(currentClose - signal.sl);
-    const tp = signal.side==="BUY" ? currentClose+risk*signal.rr : currentClose-risk*signal.rr;
-    return { invalidated:false, entry:currentClose, sl:signal.sl, tp, rr:signal.rr,
-      originalEntry:signal.entry, moved: Math.abs(currentClose-signal.entry) };
+    const entry = round2(currentClose);
+    const risk = Math.abs(entry - signal.sl);
+    const tpRaw = signal.side==="BUY" ? entry+risk*signal.rr : entry-risk*signal.rr;
+    const tp = round2(tpRaw);
+    // mesmo motivo do runPipeline: deriva o R:R mostrado dos valores já arredondados (entrada/stop/alvo),
+    // não do parâmetro bruto — senão a conta a mão com os números da tela não bate com o rótulo.
+    const stopDist = Math.abs(entry-signal.sl);
+    const rr = stopDist>0 ? round2(Math.abs(tp-entry)/stopDist) : signal.rr;
+    return { invalidated:false, entry, sl:signal.sl, tp, rr,
+      originalEntry:signal.entry, moved: Math.abs(entry-signal.entry) };
   }
 
   function renderTicket(graded, candles){
