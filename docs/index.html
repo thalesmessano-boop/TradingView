@@ -114,6 +114,7 @@
   .ticket{border:1px solid var(--border);border-radius:8px;overflow:hidden}
   .ticket-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:14px 18px;color:var(--bg)}
   .ticket-head.buy{background:var(--up)} .ticket-head.sell{background:var(--down)} .ticket-head.empty{background:var(--neutral)}
+  .ticket-head.closed-win{background:var(--pass)} .ticket-head.closed-loss{background:var(--block)}
   .ticket-head strong{font-size:1.05rem}
   .ticket-body{padding:16px 18px;background:var(--surface);display:flex;flex-direction:column;gap:14px}
   .ticket-levels{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px}
@@ -691,7 +692,7 @@
     renderChart(candles, result, graded, pending, p);
     renderTable(graded, candles, p);
     renderPending(pending, candles, p);
-    renderTicket(graded, candles);
+    renderTicket(graded, candles, p);
   }
 
   function renderPending(pending, candles, p){
@@ -709,26 +710,7 @@
     }).join("");
   }
 
-  // depois que o sinal confirma, a entrada original já ficou pra trás no tempo —
-  // reancora o ticket no preço atual, mantendo o mesmo stop estrutural e o mesmo R:R.
-  // Se o preço já passou do stop original, o setup não é mais válido pra entrar.
-  function liveAdjustTicket(signal, candles){
-    const currentClose = candles[candles.length-1].c;
-    const invalidated = signal.side==="BUY" ? currentClose<=signal.sl : currentClose>=signal.sl;
-    if (invalidated) return { invalidated:true, originalEntry:signal.entry, sl:signal.sl, currentClose };
-    const entry = round2(currentClose);
-    const risk = Math.abs(entry - signal.sl);
-    const tpRaw = signal.side==="BUY" ? entry+risk*signal.rr : entry-risk*signal.rr;
-    const tp = round2(tpRaw);
-    // mesmo motivo do runPipeline: deriva o R:R mostrado dos valores já arredondados (entrada/stop/alvo),
-    // não do parâmetro bruto — senão a conta a mão com os números da tela não bate com o rótulo.
-    const stopDist = Math.abs(entry-signal.sl);
-    const rr = stopDist>0 ? round2(Math.abs(tp-entry)/stopDist) : signal.rr;
-    return { invalidated:false, entry, sl:signal.sl, tp, rr,
-      originalEntry:signal.entry, moved: Math.abs(entry-signal.entry) };
-  }
-
-  function renderTicket(graded, candles){
+  function renderTicket(graded, candles, p){
     const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS");
     const card = el("ticketCard");
     const sizingBox = el("sizingBox");
@@ -738,29 +720,53 @@
       sizingBox.innerHTML = '<p class="controls-note">Sem sinal confirmado pra dimensionar ainda.</p>';
       return;
     }
-    const adj = liveAdjustTicket(lastPass, candles);
-    const when = new Date(lastPass.t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
-    if (adj.invalidated){
+    const confirmBars = p.microSwingLen * 2;
+    // a entrada trava no preço de fechamento do candle de confirmação — é o preço que você
+    // realmente teria pego ao entrar ali. Não reancora pra "agora" depois disso: em vez disso,
+    // acompanha candle a candle (igual a tabela de Sinais) se o stop ou o alvo já foram tocados
+    // desde então — um stop técnico, uma vez tocado, não "revive" só porque o preço voltou.
+    const outcome = evaluateOutcome(lastPass, candles, confirmBars);
+    const formedWhen = new Date(lastPass.t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+
+    if (outcome.status==="pendente" || outcome.status==="invalidado"){
       card.innerHTML =
-        '<div class="ticket-head empty"><strong>Último sinal confirmado já invalidou</strong><span>'+when+'</span></div>'+
-        '<div class="ticket-body"><div class="ticket-invalid">'+lastPass.side+' '+lastPass.event+' formado em '+adj.originalEntry.toFixed(2)+
-        ' — o preço já passou do stop original ('+adj.sl.toFixed(2)+') antes mesmo de confirmar. Preço atual: '+adj.currentClose.toFixed(2)+
-        '. Esse setup não vale mais pra entrada — espera o próximo sinal.</div></div>';
-      sizingBox.innerHTML = '<p class="controls-note">O último sinal confirmado invalidou antes da entrada — nada pra dimensionar ainda.</p>';
+        '<div class="ticket-head empty"><strong>Último sinal confirmado nunca entrou</strong><span>'+formedWhen+'</span></div>'+
+        '<div class="ticket-body"><div class="ticket-invalid">'+lastPass.side+' '+lastPass.event+' formado em '+lastPass.entry.toFixed(2)+
+        ' — o preço já tinha passado do stop ('+lastPass.sl.toFixed(2)+') antes mesmo de confirmar'+
+        (outcome.entryAtConfirm!=null?' (fechamento na confirmação: '+outcome.entryAtConfirm.toFixed(2)+')':'')+
+        '. Esse setup não vale pra entrada — espera o próximo sinal.</div></div>';
+      sizingBox.innerHTML = '<p class="controls-note">Esse sinal nunca entrou — nada pra dimensionar.</p>';
       return;
     }
+
+    if (outcome.status==="ganho" || outcome.status==="perda"){
+      const won = outcome.status==="ganho";
+      const resolvedWhen = new Date(outcome.resolvedAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+      card.innerHTML =
+        '<div class="ticket-head '+(won?"closed-win":"closed-loss")+'"><strong>'+(won?"GANHO":"PERDA")+' — '+lastPass.side+' XAUUSD já encerrou</strong><span>'+resolvedWhen+'</span></div>'+
+        '<div class="ticket-body"><p class="controls-note">Entrou em '+outcome.entryAtConfirm.toFixed(2)+' (confirmação, '+formedWhen+' é quando a estrutura formou), '+
+        (won?'saiu no alvo ':'saiu no stop ')+outcome.exitPrice.toFixed(2)+' em '+resolvedWhen+'. '+
+        'Sem ticket ativo agora — acompanhe os Alertas pro próximo sinal.</p></div>';
+      sizingBox.innerHTML = '<p class="controls-note">Esse sinal já encerrou ('+(won?"ganho":"perda")+') — nada pra dimensionar até o próximo confirmar.</p>';
+      return;
+    }
+
+    // status === "aberto": ainda não bateu stop nem alvo — ticket ativo, entrada travada na confirmação
+    const lvl = { entry:outcome.entryAtConfirm, sl:outcome.sl, tp:outcome.tp, rr:outcome.rr };
+    const currentClose = candles[candles.length-1].c;
+    const confirmWhen = new Date(candles[lastPass.i+confirmBars].t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
     card.innerHTML =
-      '<div class="ticket-head '+(lastPass.side==="BUY"?"buy":"sell")+'"><strong>'+(lastPass.side==="BUY"?"COMPRA":"VENDA")+' XAUUSD — '+lastPass.event+'</strong><span>'+when+'</span></div>'+
+      '<div class="ticket-head '+(lastPass.side==="BUY"?"buy":"sell")+'"><strong>'+(lastPass.side==="BUY"?"COMPRA":"VENDA")+' XAUUSD — '+lastPass.event+'</strong><span>'+confirmWhen+'</span></div>'+
       '<div class="ticket-body">'+
         '<div class="ticket-levels">'+
-          '<div class="lvl"><span class="k">Entrada (preço atual)</span><span class="v">'+adj.entry.toFixed(2)+'</span></div>'+
-          '<div class="lvl"><span class="k">Stop (técnico)</span><span class="v">'+adj.sl.toFixed(2)+'</span></div>'+
-          '<div class="lvl"><span class="k">Alvo</span><span class="v">'+adj.tp.toFixed(2)+'</span></div>'+
-          '<div class="lvl"><span class="k">R:R</span><span class="v">'+adj.rr.toFixed(1)+'</span></div>'+
+          '<div class="lvl"><span class="k">Entrada (na confirmação)</span><span class="v">'+lvl.entry.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">Stop (técnico)</span><span class="v">'+lvl.sl.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">Alvo</span><span class="v">'+lvl.tp.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">R:R</span><span class="v">'+lvl.rr.toFixed(1)+'</span></div>'+
         '</div>'+
-        '<div class="ticket-adjust">Estrutura formada em '+adj.originalEntry.toFixed(2)+' às '+when+
-          ' — entrada reajustada pro preço de agora ('+(adj.entry-adj.originalEntry>=0?"+":"")+(adj.entry-adj.originalEntry).toFixed(2)+
-          '), mantendo o mesmo stop estrutural e o mesmo R:R.</div>'+
+        '<div class="ticket-adjust">Estrutura formada em '+lastPass.entry.toFixed(2)+' às '+formedWhen+
+          ', confirmou em '+confirmWhen+' — essa é a entrada travada, não muda mais. Preço agora: '+currentClose.toFixed(2)+
+          ' ('+(currentClose-lvl.entry>=0?"+":"")+(currentClose-lvl.entry).toFixed(2)+' desde a entrada).</div>'+
         '<div class="ticket-actions">'+
           '<button id="btnCopyTicket">Copiar ticket</button>'+
           '<button id="btnLogTicket" class="primary">Registrar execução</button>'+
@@ -771,24 +777,24 @@
     const accountSize = parseFloat(el("accountSize").value)||0;
     const riskPercent = parseFloat(el("riskPercentTrade").value)||0;
     const contractSize = parseFloat(el("contractSize").value)||0;
-    const size = positionSize(adj, accountSize, riskPercent, contractSize);
-    const stopDist = Math.abs(adj.entry-adj.sl);
+    const size = positionSize(lvl, accountSize, riskPercent, contractSize);
+    const stopDist = Math.abs(lvl.entry-lvl.sl);
     sizingBox.innerHTML = size
-      ? '<div class="ticket-size">Stop a <strong>'+stopDist.toFixed(2)+'</strong> do preço atual (nível técnico, fixo) → '+
+      ? '<div class="ticket-size">Stop a <strong>'+stopDist.toFixed(2)+'</strong> da entrada (nível técnico, fixo) → '+
           'tamanho pro seu risco: <strong>'+size.oz.toFixed(2)+' oz</strong>'+
           (contractSize>0?' ('+size.lots.toFixed(2)+' lote(s) de '+contractSize+' oz)':'')+
           ' — arrisca <strong>'+size.riskUsd.toFixed(2)+' USD</strong> ('+riskPercent.toFixed(1)+'% de '+accountSize.toFixed(0)+')</div>'
       : '<p class="controls-note">Preencha conta e risco acima pra calcular o tamanho da posição.</p>';
 
     el("btnCopyTicket").addEventListener("click", ()=>{
-      const text = formatTicket({...lastPass, entry:adj.entry, sl:adj.sl, tp:adj.tp}, size);
+      const text = formatTicket({...lastPass, entry:lvl.entry, sl:lvl.sl, tp:lvl.tp, rr:lvl.rr}, size);
       navigator.clipboard?.writeText(text).then(()=>{
         const ok = el("ticketCopyOk"); ok.hidden=false; setTimeout(()=>ok.hidden=true, 1800);
       }).catch(()=>{});
     });
     el("btnLogTicket").addEventListener("click", ()=>{
       el("tfSide").value = lastPass.side;
-      el("tfEntry").value = adj.entry.toFixed(2);
+      el("tfEntry").value = lvl.entry.toFixed(2);
       el("tfExit").value = "";
       el("tfSize").value = size ? size.oz.toFixed(2) : "1";
       el("tfEntry").scrollIntoView({behavior:"smooth", block:"center"});
@@ -1063,20 +1069,22 @@
   function evaluateOutcome(signal, candles, confirmBars){
     const confirmIndex = signal.i + confirmBars;
     if (confirmIndex >= candles.length) return { status:"pendente" };
-    const entryAtConfirm = candles[confirmIndex].c;
+    const entryAtConfirm = round2(candles[confirmIndex].c);
     const up = signal.side==="BUY";
     const invalidated = up ? entryAtConfirm<=signal.sl : entryAtConfirm>=signal.sl;
     if (invalidated) return { status:"invalidado", entryAtConfirm };
     const risk = Math.abs(entryAtConfirm - signal.sl);
-    const tp = up ? entryAtConfirm+risk*signal.rr : entryAtConfirm-risk*signal.rr;
+    const tp = round2(up ? entryAtConfirm+risk*signal.rr : entryAtConfirm-risk*signal.rr);
+    const stopDist = Math.abs(entryAtConfirm-signal.sl);
+    const rr = stopDist>0 ? round2(Math.abs(tp-entryAtConfirm)/stopDist) : signal.rr;
     for (let i=confirmIndex+1; i<candles.length; i++){
       const c = candles[i];
       const hitSl = up ? c.l<=signal.sl : c.h>=signal.sl;
       const hitTp = up ? c.h>=tp : c.l<=tp;
-      if (hitSl) return { status:"perda", entryAtConfirm, exitPrice:signal.sl, resolvedAt:c.t };
-      if (hitTp) return { status:"ganho", entryAtConfirm, exitPrice:tp, resolvedAt:c.t };
+      if (hitSl) return { status:"perda", entryAtConfirm, sl:signal.sl, tp, rr, exitPrice:signal.sl, resolvedAt:c.t };
+      if (hitTp) return { status:"ganho", entryAtConfirm, sl:signal.sl, tp, rr, exitPrice:tp, resolvedAt:c.t };
     }
-    return { status:"aberto", entryAtConfirm };
+    return { status:"aberto", entryAtConfirm, sl:signal.sl, tp, rr };
   }
 
   function renderTable(graded, candles, p){
