@@ -2,27 +2,30 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
   :root{
-    --bg:#f6f7fb; --surface:#ffffff; --fg:#131722; --muted:#787b86;
-    --accent:#2962ff; --accent-soft:#e7edfd; --pass:#089981; --pass-soft:#e1f4f0;
-    --block:#f23645; --block-soft:#fde9eb; --border:#dfe3eb; --code-bg:#edf1f8;
-    --up:#089981; --down:#f23645; --neutral:#5c6270;
+    --bg:#f3f5f6; --surface:#ffffff; --fg:#0d1117; --muted:#6b7280;
+    --accent:#0ea577; --accent-soft:#e2f7ef; --pass:#0ea577; --pass-soft:#e2f7ef;
+    --block:#e11d48; --block-soft:#fde3e9; --border:#e4e7eb; --code-bg:#eef1f3;
+    --up:#0ea577; --down:#e11d48; --neutral:#5c6270;
+    --info:#b45309; --info-soft:#fbead0;
     --font-display:'IBM Plex Sans',system-ui,sans-serif;
     --font-mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
-      --bg:#131722; --surface:#1e222d; --fg:#d1d4dc; --muted:#868993;
-      --accent:#5b8ef5; --accent-soft:#1b2a4a; --pass:#1dd1a8; --pass-soft:#0f2e28;
-      --block:#ff5d67; --block-soft:#3a1620; --border:#2a2e39; --code-bg:#1a1e29;
-      --up:#1dd1a8; --down:#ff5d67; --neutral:#8b90a0;
+      --bg:#0a0c10; --surface:#14171d; --fg:#e8eaed; --muted:#8a919c;
+      --accent:#17e3a6; --accent-soft:#0f2a22; --pass:#17e3a6; --pass-soft:#0f2a22;
+      --block:#ff3b5c; --block-soft:#3a0f18; --border:#1f242c; --code-bg:#171b22;
+      --up:#17e3a6; --down:#ff3b5c; --neutral:#8b90a0;
+      --info:#ffb648; --info-soft:#3a2710;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"]{
-    --bg:#131722; --surface:#1e222d; --fg:#d1d4dc; --muted:#868993;
-    --accent:#5b8ef5; --accent-soft:#1b2a4a; --pass:#1dd1a8; --pass-soft:#0f2e28;
-    --block:#ff5d67; --block-soft:#3a1620; --border:#2a2e39; --code-bg:#1a1e29;
-    --up:#1dd1a8; --down:#ff5d67; --neutral:#8b90a0;
+    --bg:#0a0c10; --surface:#14171d; --fg:#e8eaed; --muted:#8a919c;
+    --accent:#17e3a6; --accent-soft:#0f2a22; --pass:#17e3a6; --pass-soft:#0f2a22;
+    --block:#ff3b5c; --block-soft:#3a0f18; --border:#1f242c; --code-bg:#171b22;
+    --up:#17e3a6; --down:#ff3b5c; --neutral:#8b90a0;
+    --info:#ffb648; --info-soft:#3a2710;
     color-scheme: dark;
   }
   *{box-sizing:border-box}
@@ -42,7 +45,8 @@
     border:1px solid var(--border);border-radius:8px;padding:9px 14px;display:flex;flex-wrap:wrap;
     gap:5px 12px;align-items:center;font-size:.82rem;box-shadow:0 4px 14px rgba(0,0,0,.08)}
   .ss-item{color:var(--fg);display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
-  .ss-price strong{font-size:.95rem;font-weight:700}
+  .ss-price strong{font-size:1.05rem;font-weight:700}
+  .ss-price-dec{font-size:.8em;font-weight:600;opacity:.8}
   .ss-change{font-weight:600}
   .ss-change.up, .ss-session.up, .ss-item.up{color:var(--up)}
   .ss-change.down, .ss-item.down{color:var(--down)}
@@ -79,7 +83,7 @@
   .badge{font-family:var(--font-mono);font-size:.74rem;padding:3px 9px;border-radius:5px;display:inline-flex;gap:5px;align-items:center;width:fit-content;font-weight:600}
   .badge.pass{background:var(--pass-soft);color:var(--pass)} .badge.block{background:var(--block-soft);color:var(--block)}
   .badge.neutral{background:var(--border);color:var(--muted)}
-  .badge.pending, .badge.open{background:var(--accent-soft);color:var(--accent)}
+  .badge.pending, .badge.open{background:var(--info-soft);color:var(--info)}
   .badge.pass::before, .badge.block::before, .badge.pending::before, .badge.open::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
   .pending-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:.86rem}
   .pending-row:last-child{border-bottom:none}
@@ -153,6 +157,7 @@
   .cot-spark-line{stroke-width:1.6}
   .cot-spark-line.up{stroke:var(--up)} .cot-spark-line.down{stroke:var(--down)}
   .cot-spark-dot.up{fill:var(--up)} .cot-spark-dot.down{fill:var(--down)}
+  .cot-spark-avg{stroke:var(--muted);stroke-width:1;stroke-dasharray:2,3;opacity:.5}
 
   /* relógio de sessão */
   .session-row{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
@@ -160,7 +165,7 @@
     display:inline-flex;align-items:center;gap:7px;font-variant-numeric:tabular-nums}
   .session-badge.open{background:var(--pass-soft);color:var(--pass)}
   .session-badge.closed{background:var(--block-soft);color:var(--block)}
-  .session-badge.warn{background:var(--accent-soft);color:var(--accent)}
+  .session-badge.warn{background:var(--info-soft);color:var(--info)}
   .session-badge.open::before, .session-badge.closed::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
 
   /* registro de operações */
@@ -347,7 +352,7 @@
       <span><span class="swatch" style="background:var(--up)"></span>Compra (BOS/CHoCH de alta)</span>
       <span><span class="swatch" style="background:var(--down)"></span>Venda (BOS/CHoCH de baixa)</span>
       <span>● sólido = PASS (ticket pronto) · ○ contorno = BLOCK · ◇ pontilhado = aguardando confirmação</span>
-      <span><span class="swatch" style="background:var(--accent)"></span>Volume ≥ limiar</span>
+      <span><span class="swatch" style="background:var(--info)"></span>Volume ≥ limiar</span>
       <span>faixa de fundo = tendência macro</span>
     </div>
     <div class="chart-scroll">
@@ -868,7 +873,8 @@
     const pts = values.map((v,i)=>[pad+i*xStep, yOf(v)]);
     const line = pts.map((p,i)=>(i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
     const area = line+" L"+pts[pts.length-1][0].toFixed(1)+","+(height-pad)+" L"+pts[0][0].toFixed(1)+","+(height-pad)+" Z";
-    return { line, area, lastPt: pts[pts.length-1] };
+    const avg = values.reduce((a,b)=>a+b,0)/n;
+    return { line, area, lastPt: pts[pts.length-1], avgY: yOf(avg), x0: pad, x1: width-pad };
   }
 
   async function loadCot(){
@@ -892,6 +898,7 @@
       const spark = sparklinePath(netSeries, 320, 46, 4);
       const sparkSvg = spark ? (
         '<svg viewBox="0 0 320 46" width="100%" height="46" preserveAspectRatio="none" class="cot-spark" role="img" aria-label="posicionamento líquido, últimas '+netSeries.length+' semanas">'+
+          '<line x1="'+spark.x0+'" y1="'+spark.avgY.toFixed(1)+'" x2="'+spark.x1+'" y2="'+spark.avgY.toFixed(1)+'" class="cot-spark-avg"></line>'+
           '<path d="'+spark.area+'" class="cot-spark-area '+trendCls+'"></path>'+
           '<path d="'+spark.line+'" class="cot-spark-line '+trendCls+'" fill="none"></path>'+
           '<circle cx="'+spark.lastPt[0].toFixed(1)+'" cy="'+spark.lastPt[1].toFixed(1)+'" r="2.6" class="cot-spark-dot '+trendCls+'"></circle>'+
@@ -992,7 +999,9 @@
   function renderStatusStrip(candles){
     if (!candles || !candles.length) return;
     const last = candles[candles.length-1], prev = candles.length>1 ? candles[candles.length-2] : null;
-    el("ssPrice").textContent = last.c.toFixed(2);
+    // dígitos inteiros grandes, decimais menores — como um preço de corretora/terminal
+    const priceStr = last.c.toFixed(2), dot = priceStr.indexOf(".");
+    el("ssPrice").innerHTML = priceStr.slice(0,dot)+'<span class="ss-price-dec">'+priceStr.slice(dot)+'</span>';
     const changeEl = el("ssChange");
     if (prev){
       const diff = last.c-prev.c, pct = prev.c ? (diff/prev.c)*100 : 0;
@@ -1066,7 +1075,7 @@
     const cs = getComputedStyle(document.body);
     const col = (name)=>cs.getPropertyValue(name).trim();
     const colUp=col("--up"), colDown=col("--down"), colMuted=col("--muted"), colBorder=col("--border"),
-          colAccent=col("--accent"), colFg=col("--fg"), colPassSoft=col("--pass-soft"), colBlockSoft=col("--block-soft");
+          colInfo=col("--info"), colFg=col("--fg"), colPassSoft=col("--pass-soft"), colBlockSoft=col("--block-soft");
 
     const lo = Math.min(...candles.map(c=>c.l)), hi = Math.max(...candles.map(c=>c.h));
     const pad = (hi-lo)*0.08;
@@ -1135,7 +1144,7 @@
       const up = s.side==="BUY";
       const y = up ? yOf(candles[s.i].l)+16 : yOf(candles[s.i].h)-16;
       ctx.setLineDash([2,2]);
-      ctx.strokeStyle = colAccent; ctx.lineWidth = 1.2;
+      ctx.strokeStyle = colInfo; ctx.lineWidth = 1.2;
       ctx.beginPath();
       ctx.moveTo(x,y-7); ctx.lineTo(x-7,y); ctx.lineTo(x,y+7); ctx.lineTo(x+7,y); ctx.closePath();
       ctx.stroke();
@@ -1165,7 +1174,7 @@
       const c = candles[i], b = result.barMeta[i];
       const x = xOf(i);
       const h = (c.v/maxVol)*(VOL_H-14);
-      vctx.fillStyle = b.volOk ? colAccent : colMuted;
+      vctx.fillStyle = b.volOk ? colInfo : colMuted;
       vctx.globalAlpha = b.volOk ? 0.9 : 0.35;
       vctx.fillRect(x-CANDLE_W/2, VOL_H-h, CANDLE_W, h);
     }
@@ -1336,7 +1345,7 @@
       if (!silent){
         const first = new Date(liveData[0].t), last = new Date(liveData[liveData.length-1].t);
         const fmt = (d)=>d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
-        status.style.color = hasRealVolume ? "var(--pass)" : "var(--accent)";
+        status.style.color = hasRealVolume ? "var(--pass)" : "var(--info)";
         status.textContent = liveData.length+" candles reais carregados, de "+fmt(first)+" a "+fmt(last)+". "+
           (hasRealVolume ? "Volume real." :
             "A Twelve Data não fornece volume negociado pra XAU/USD (comum em metais/forex) — o filtro de volume está usando um PROXY pela amplitude do candle, não volume de mercado de verdade. Veja 'Fonte do volume' em Estado agora.") +
