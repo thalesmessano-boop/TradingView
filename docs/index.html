@@ -40,6 +40,8 @@
   .hero{display:flex;flex-direction:column;gap:10px}
   .hero p{max-width:66ch}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
+  .block-label{display:flex;flex-direction:column;gap:3px;margin-bottom:10px}
+  .block-label .eyebrow{margin-bottom:1px}
   .section-head{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
 
   /* controles */
@@ -254,15 +256,26 @@
 
   <section class="card">
     <div class="section-head"><h2>Ticket</h2><p>O último sinal <strong>confirmado</strong>, com a entrada ajustada pro preço atual — pronto pra ler e operar na sua corretora, nunca executado por aqui.</p></div>
-    <div class="controls-grid" style="margin-bottom:16px">
-      <div class="field"><label for="accountSize">Conta (USD)</label><input type="number" id="accountSize" value="10000" min="0" step="100"></div>
-      <div class="field"><label for="riskPercentTrade">Risco por operação (%)</label><input type="number" id="riskPercentTrade" value="1.0" min="0.1" step="0.1"></div>
-      <div class="field"><label for="contractSize">Onças por lote</label><input type="number" id="contractSize" value="100" min="0.01" step="1"></div>
+
+    <div class="block-label">
+      <span class="eyebrow">Nível técnico</span>
+      <p class="controls-note">Entrada, stop e alvo vêm só da estrutura de mercado (pivô de invalidação + buffer de ATR) e do R:R do indicador — nunca mudam por causa do seu risco em dólar.</p>
     </div>
     <div class="ticket" id="ticketCard">
       <div class="ticket-head empty"><strong>Sem sinal aprovado ainda</strong></div>
       <div class="ticket-body"><p class="controls-note">Ajuste os parâmetros ou carregue dados reais — quando um sinal passar pelo filtro de risco, o ticket aparece aqui.</p></div>
     </div>
+
+    <div class="block-label" style="margin-top:20px">
+      <span class="eyebrow">Dimensionamento de posição</span>
+      <p class="controls-note">O stop acima é fixo — aqui você só escolhe quantas onças comprar ou vender pra arriscar o quanto quiser da sua conta nesse stop.</p>
+    </div>
+    <div class="controls-grid" style="margin-bottom:12px">
+      <div class="field"><label for="accountSize">Conta (USD)</label><input type="number" id="accountSize" value="10000" min="0" step="100"></div>
+      <div class="field"><label for="riskPercentTrade">Risco por operação (%)</label><input type="number" id="riskPercentTrade" value="1.0" min="0.1" step="0.1"></div>
+      <div class="field"><label for="contractSize">Onças por lote</label><input type="number" id="contractSize" value="100" min="0.01" step="1"></div>
+    </div>
+    <div id="sizingBox"><p class="controls-note">Sem sinal confirmado pra dimensionar ainda.</p></div>
   </section>
 
   <section>
@@ -699,9 +712,11 @@
   function renderTicket(graded, candles){
     const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS");
     const card = el("ticketCard");
+    const sizingBox = el("sizingBox");
     if (!lastPass){
       card.innerHTML = '<div class="ticket-head empty"><strong>Sem sinal confirmado ainda</strong></div>'+
         '<div class="ticket-body"><p class="controls-note">Ajuste os parâmetros ou carregue dados reais — quando um sinal passar pela confirmação e pelo filtro de risco, o ticket aparece aqui.</p></div>';
+      sizingBox.innerHTML = '<p class="controls-note">Sem sinal confirmado pra dimensionar ainda.</p>';
       return;
     }
     const adj = liveAdjustTicket(lastPass, candles);
@@ -712,33 +727,40 @@
         '<div class="ticket-body"><div class="ticket-invalid">'+lastPass.side+' '+lastPass.event+' formado em '+adj.originalEntry.toFixed(2)+
         ' — o preço já passou do stop original ('+adj.sl.toFixed(2)+') antes mesmo de confirmar. Preço atual: '+adj.currentClose.toFixed(2)+
         '. Esse setup não vale mais pra entrada — espera o próximo sinal.</div></div>';
+      sizingBox.innerHTML = '<p class="controls-note">O último sinal confirmado invalidou antes da entrada — nada pra dimensionar ainda.</p>';
       return;
     }
-    const accountSize = parseFloat(el("accountSize").value)||0;
-    const riskPercent = parseFloat(el("riskPercentTrade").value)||0;
-    const contractSize = parseFloat(el("contractSize").value)||0;
-    const size = positionSize(adj, accountSize, riskPercent, contractSize);
     card.innerHTML =
       '<div class="ticket-head '+(lastPass.side==="BUY"?"buy":"sell")+'"><strong>'+(lastPass.side==="BUY"?"COMPRA":"VENDA")+' XAUUSD — '+lastPass.event+'</strong><span>'+when+'</span></div>'+
       '<div class="ticket-body">'+
         '<div class="ticket-levels">'+
           '<div class="lvl"><span class="k">Entrada (preço atual)</span><span class="v">'+adj.entry.toFixed(2)+'</span></div>'+
-          '<div class="lvl"><span class="k">Stop</span><span class="v">'+adj.sl.toFixed(2)+'</span></div>'+
+          '<div class="lvl"><span class="k">Stop (técnico)</span><span class="v">'+adj.sl.toFixed(2)+'</span></div>'+
           '<div class="lvl"><span class="k">Alvo</span><span class="v">'+adj.tp.toFixed(2)+'</span></div>'+
           '<div class="lvl"><span class="k">R:R</span><span class="v">'+adj.rr.toFixed(1)+'</span></div>'+
         '</div>'+
         '<div class="ticket-adjust">Estrutura formada em '+adj.originalEntry.toFixed(2)+' às '+when+
-          ' — entrada reajustada pro preço de agora ('+(adj.moved>=0?"+":"")+(adj.entry-adj.originalEntry>=0?"+":"")+(adj.entry-adj.originalEntry).toFixed(2)+
+          ' — entrada reajustada pro preço de agora ('+(adj.entry-adj.originalEntry>=0?"+":"")+(adj.entry-adj.originalEntry).toFixed(2)+
           '), mantendo o mesmo stop estrutural e o mesmo R:R.</div>'+
-        (size ? '<div class="ticket-size">Tamanho sugerido: <strong>'+size.oz.toFixed(2)+' oz</strong>'+
-          (contractSize>0?' ('+size.lots.toFixed(2)+' lote(s) de '+contractSize+' oz)':'')+
-          ' — arrisca <strong>'+size.riskUsd.toFixed(2)+' USD</strong> ('+riskPercent.toFixed(1)+'% de '+accountSize.toFixed(0)+')</div>' : '')+
         '<div class="ticket-actions">'+
           '<button id="btnCopyTicket">Copiar ticket</button>'+
           '<button id="btnLogTicket" class="primary">Registrar execução</button>'+
           '<span class="copy-ok" id="ticketCopyOk" hidden>copiado ✓</span>'+
         '</div>'+
       '</div>';
+
+    const accountSize = parseFloat(el("accountSize").value)||0;
+    const riskPercent = parseFloat(el("riskPercentTrade").value)||0;
+    const contractSize = parseFloat(el("contractSize").value)||0;
+    const size = positionSize(adj, accountSize, riskPercent, contractSize);
+    const stopDist = Math.abs(adj.entry-adj.sl);
+    sizingBox.innerHTML = size
+      ? '<div class="ticket-size">Stop a <strong>'+stopDist.toFixed(2)+'</strong> do preço atual (nível técnico, fixo) → '+
+          'tamanho pro seu risco: <strong>'+size.oz.toFixed(2)+' oz</strong>'+
+          (contractSize>0?' ('+size.lots.toFixed(2)+' lote(s) de '+contractSize+' oz)':'')+
+          ' — arrisca <strong>'+size.riskUsd.toFixed(2)+' USD</strong> ('+riskPercent.toFixed(1)+'% de '+accountSize.toFixed(0)+')</div>'
+      : '<p class="controls-note">Preencha conta e risco acima pra calcular o tamanho da posição.</p>';
+
     el("btnCopyTicket").addEventListener("click", ()=>{
       const text = formatTicket({...lastPass, entry:adj.entry, sl:adj.sl, tp:adj.tp}, size);
       navigator.clipboard?.writeText(text).then(()=>{
