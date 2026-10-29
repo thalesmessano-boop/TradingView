@@ -68,8 +68,8 @@
   .badge{font-family:var(--font-mono);font-size:.74rem;padding:3px 9px;border-radius:5px;display:inline-flex;gap:5px;align-items:center;width:fit-content;font-weight:600}
   .badge.pass{background:var(--pass-soft);color:var(--pass)} .badge.block{background:var(--block-soft);color:var(--block)}
   .badge.neutral{background:var(--border);color:var(--muted)}
-  .badge.pending{background:var(--accent-soft);color:var(--accent)}
-  .badge.pass::before, .badge.block::before, .badge.pending::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+  .badge.pending, .badge.open{background:var(--accent-soft);color:var(--accent)}
+  .badge.pass::before, .badge.block::before, .badge.pending::before, .badge.open::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
   .pending-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:.86rem}
   .pending-row:last-child{border-bottom:none}
   .ticket-adjust{background:var(--code-bg);border-radius:6px;padding:9px 12px;font-size:.78rem;color:var(--muted)}
@@ -315,10 +315,13 @@
   </section>
 
   <section>
-    <div class="section-head"><h2>Sinais</h2><p>Na ordem em que o filtro de risco os avaliaria; PASS mostra o ticket e deixa registrar a execução.</p></div>
+    <div class="section-head"><h2>Sinais</h2><p>Na ordem em que o filtro de risco os avaliaria; PASS mostra o ticket e deixa registrar a execução.
+    Resultado é calculado olhando pra frente a partir da entrada na confirmação (preço de agora, não o da formação) —
+    só dá pra saber depois que o mercado andou; se stop e alvo são tocados no mesmo candle, contamos como perda (conservador).</p></div>
+    <p class="controls-note" id="signalsSummary" style="margin-bottom:10px"></p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Quando</th><th>Lado</th><th>Evento</th><th>Onda</th><th>Vol</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>R:R</th><th>Veredito</th></tr></thead>
+        <thead><tr><th>Quando</th><th>Lado</th><th>Evento</th><th>Onda</th><th>Vol</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>R:R</th><th>Veredito</th><th>Resultado</th></tr></thead>
         <tbody id="signalsBody"></tbody>
       </table>
     </div>
@@ -680,7 +683,7 @@
 
     renderSummary(candles, result, graded);
     renderChart(candles, result, graded, pending, p);
-    renderTable(graded);
+    renderTable(graded, candles, p);
     renderPending(pending, candles, p);
     renderTicket(graded, candles);
   }
@@ -1041,23 +1044,66 @@
     }
   }
 
-  function renderTable(graded){
+  // olha pra frente a partir da confirmação (mesma entrada que o ticket teria usado: preço de
+  // fechamento no candle de confirmação, não o preço de quando a estrutura se formou) e vê se o
+  // stop técnico ou o alvo foi tocado primeiro. Se os dois aparecem no mesmo candle, conta como
+  // perda (não dá pra saber a ordem real dentro do candle, então assume o cenário pior).
+  function evaluateOutcome(signal, candles, confirmBars){
+    const confirmIndex = signal.i + confirmBars;
+    if (confirmIndex >= candles.length) return { status:"pendente" };
+    const entryAtConfirm = candles[confirmIndex].c;
+    const up = signal.side==="BUY";
+    const invalidated = up ? entryAtConfirm<=signal.sl : entryAtConfirm>=signal.sl;
+    if (invalidated) return { status:"invalidado", entryAtConfirm };
+    const risk = Math.abs(entryAtConfirm - signal.sl);
+    const tp = up ? entryAtConfirm+risk*signal.rr : entryAtConfirm-risk*signal.rr;
+    for (let i=confirmIndex+1; i<candles.length; i++){
+      const c = candles[i];
+      const hitSl = up ? c.l<=signal.sl : c.h>=signal.sl;
+      const hitTp = up ? c.h>=tp : c.l<=tp;
+      if (hitSl) return { status:"perda", entryAtConfirm, exitPrice:signal.sl, resolvedAt:c.t };
+      if (hitTp) return { status:"ganho", entryAtConfirm, exitPrice:tp, resolvedAt:c.t };
+    }
+    return { status:"aberto", entryAtConfirm };
+  }
+
+  function renderTable(graded, candles, p){
     const body = el("signalsBody");
+    const confirmBars = p.microSwingLen * 2;
     body.innerHTML = "";
+    const counts = { ganho:0, perda:0, aberto:0, invalidado:0 };
     for (const g of [...graded].reverse()){
       const tr = document.createElement("tr");
       const when = new Date(g.t).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
       const verdictCell = g.verdict==="PASS"
         ? '<details class="wa"><summary><span class="badge pass">PASS</span> ver ticket</summary><pre>'+formatTicket(g, positionSize(g, parseFloat(el("accountSize").value)||0, parseFloat(el("riskPercentTrade").value)||0, parseFloat(el("contractSize").value)||0)).replace(/</g,"&lt;")+'</pre></details>'
         : '<span class="badge block" title="'+g.reason+'">BLOCK</span><div class="controls-note">'+g.reason+'</div>';
+      let resultCell = '<span class="controls-note">—</span>';
+      if (g.verdict==="PASS"){
+        const outcome = evaluateOutcome(g, candles, confirmBars);
+        if (outcome.status==="ganho" || outcome.status==="perda") counts[outcome.status]++;
+        else if (outcome.status==="aberto") counts.aberto++;
+        else if (outcome.status==="invalidado") counts.invalidado++;
+        if (outcome.status==="ganho") resultCell = '<span class="badge pass" title="entrada na confirmação '+outcome.entryAtConfirm.toFixed(2)+', saiu no alvo '+outcome.exitPrice.toFixed(2)+'">GANHO</span>';
+        else if (outcome.status==="perda") resultCell = '<span class="badge block" title="entrada na confirmação '+outcome.entryAtConfirm.toFixed(2)+', saiu no stop '+outcome.exitPrice.toFixed(2)+'">PERDA</span>';
+        else if (outcome.status==="aberto") resultCell = '<span class="badge open" title="entrada na confirmação '+outcome.entryAtConfirm.toFixed(2)+', ainda não tocou stop nem alvo nos dados carregados">ABERTO</span>';
+        else if (outcome.status==="invalidado") resultCell = '<span class="badge neutral" title="preço já tinha passado do stop antes da confirmação — nunca teria entrado">INVALIDADO</span>';
+        else resultCell = '<span class="controls-note">aguardando confirmar</span>';
+      }
       tr.innerHTML = "<td>"+when+"</td><td>"+g.side+"</td><td>"+g.event+"</td><td>"+g.waveLabel+"</td>"+
         "<td>"+g.volRatio.toFixed(2)+"x</td><td>"+g.entry.toFixed(2)+"</td><td>"+g.sl.toFixed(2)+"</td>"+
-        "<td>"+g.tp.toFixed(2)+"</td><td>"+g.rr.toFixed(1)+"</td><td>"+verdictCell+"</td>";
+        "<td>"+g.tp.toFixed(2)+"</td><td>"+g.rr.toFixed(1)+"</td><td>"+verdictCell+"</td><td>"+resultCell+"</td>";
       body.appendChild(tr);
     }
     if (!graded.length){
-      body.innerHTML = '<tr><td colspan="10" class="controls-note">Nenhum sinal com os parâmetros atuais — tente diminuir a sensibilidade dos pivôs ou o volume mínimo.</td></tr>';
+      body.innerHTML = '<tr><td colspan="11" class="controls-note">Nenhum sinal com os parâmetros atuais — tente diminuir a sensibilidade dos pivôs ou o volume mínimo.</td></tr>';
     }
+    const resolved = counts.ganho + counts.perda;
+    const summary = el("signalsSummary");
+    summary.textContent = resolved
+      ? counts.ganho+" ganho(s) · "+counts.perda+" perda(s) — taxa de acerto "+Math.round(100*counts.ganho/resolved)+"% ("+resolved+" sinal(is) já resolvido(s))"+
+        (counts.aberto?" · "+counts.aberto+" ainda aberto(s)":"")+(counts.invalidado?" · "+counts.invalidado+" invalidado(s) antes de confirmar":"")
+      : "Nenhum sinal PASS ainda resolvido (bateu stop ou alvo) com os dados carregados.";
   }
 
   // ---------- interação ----------
