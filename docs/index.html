@@ -164,7 +164,10 @@
       <p class="controls-note">Busca candles reais de XAU/USD direto do navegador via
       <a href="https://twelvedata.com/pricing" target="_blank" rel="noopener">Twelve Data</a> (nível gratuito,
       sem cartão: crie a conta, copie a chave de API e cole abaixo — uma vez só, fica salva neste navegador).
-      Depois disso, toda vez que você abrir esta página ela busca os dados reais sozinha, sem precisar exportar CSV.</p>
+      Depois disso, toda vez que você abrir esta página ela busca os dados reais sozinha, sem precisar exportar CSV.
+      Preço, alta, baixa e fechamento são reais. <strong>Volume geralmente não é</strong> — a Twelve Data não fornece
+      volume negociado pra metais/forex, então o filtro de volume roda sobre um proxy pela amplitude do candle,
+      não volume de mercado de verdade. Isso aparece como "Fonte do volume" em Estado agora depois que os dados carregarem.</p>
       <div class="controls-row">
         <input type="text" id="liveApiKey" placeholder="cole sua chave da Twelve Data aqui" style="flex:1;min-width:220px;font-family:var(--font-mono);font-size:.85rem;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;padding:7px 9px">
         <button id="btnSaveLiveKey" class="primary">Salvar chave e buscar</button>
@@ -223,6 +226,7 @@
       <div class="stat"><span class="label">Sinais aprovados</span><span class="value" id="statPass">0</span></div>
       <div class="stat"><span class="label">Sinais bloqueados</span><span class="value" id="statBlock">0</span></div>
       <div class="stat"><span class="label">Último veredito</span><span id="statLast"><span class="badge neutral">—</span></span></div>
+      <div class="stat"><span class="label">Fonte do volume</span><span class="value" id="statVolSource" style="font-size:.86rem" title="">—</span></div>
     </div>
     <div class="section-head" style="margin-top:16px"><h2>Relógio de sessão (agora de verdade, não dos dados carregados)</h2></div>
     <div class="session-row">
@@ -638,6 +642,9 @@
   let customData = null;
   let liveData = null;
   let dataSource = "demo"; // "demo" | "custom" | "live"
+  // se o volume de cada fonte é negociado de verdade ou um proxy pela amplitude do candle —
+  // mostrado em "Estado agora" pra nunca passar proxy por dado real
+  let volumeReal = { demo:false, custom:null, live:null }; // null = ainda não carregou essa fonte
 
   const el = (id)=>document.getElementById(id);
   const ids = Object.keys(DEFAULTS);
@@ -912,6 +919,18 @@
     if (!last){ lastEl.innerHTML = '<span class="badge neutral">sem sinais ainda</span>'; }
     else if (last.verdict==="PASS"){ lastEl.innerHTML = '<span class="badge pass">PASS · '+last.side+' '+last.event+'</span>'; }
     else { lastEl.innerHTML = '<span class="badge block" title="'+last.reason+'">BLOCK · '+last.reason+'</span>'; }
+
+    const vsEl = el("statVolSource");
+    const real = volumeReal[dataSource];
+    if (dataSource==="demo"){
+      vsEl.textContent = "Sintético (demo)"; vsEl.title = "Dados de demonstração gerados por fórmula — nunca é volume de mercado real.";
+    } else if (real==null){
+      vsEl.textContent = "—"; vsEl.title = "Ainda não carregou dados dessa fonte.";
+    } else if (real){
+      vsEl.textContent = "Real"; vsEl.title = "A fonte atual trouxe volume negociado de verdade.";
+    } else {
+      vsEl.textContent = "Proxy (amplitude)"; vsEl.title = "A fonte atual não trouxe volume negociado — o número de 'Vol' é uma estimativa pela amplitude do candle (alta-baixa), não volume de mercado real. Trate o filtro de volume com essa ressalva.";
+    }
   }
 
   function renderChart(candles, result, graded, pending, p){
@@ -1159,7 +1178,7 @@
       status.style.color = "var(--block)";
       return;
     }
-    customData = parsed; dataSource = "custom"; draw();
+    customData = parsed; volumeReal.custom = !volumeIsProxy; dataSource = "custom"; draw();
     const first = new Date(parsed[0].t), last = new Date(parsed[parsed.length-1].t);
     const fmt = (d)=>d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
     status.style.color = "var(--pass)";
@@ -1197,14 +1216,16 @@
       const hasRealVolume = rows.some(r=>r.v!=null && r.v>0);
       liveData = rows.map(r=>({ t:r.t, o:r.o, h:r.h, l:r.l, c:r.c,
         v: hasRealVolume ? (r.v||0) : Math.max(1, Math.round((r.h-r.l)*1000)) }));
+      volumeReal.live = hasRealVolume;
       if (!silent || dataSource==="live"){ dataSource = "live"; draw(); }
       checkNewSignalsForNotify(liveData);
       if (!silent){
         const first = new Date(liveData[0].t), last = new Date(liveData[liveData.length-1].t);
         const fmt = (d)=>d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
-        status.style.color = "var(--pass)";
-        status.textContent = liveData.length+" candles reais carregados, de "+fmt(first)+" a "+fmt(last)+
-          (hasRealVolume ? " — volume real." : " — sem volume na API, usando proxy pelo range.") +
+        status.style.color = hasRealVolume ? "var(--pass)" : "var(--accent)";
+        status.textContent = liveData.length+" candles reais carregados, de "+fmt(first)+" a "+fmt(last)+". "+
+          (hasRealVolume ? "Volume real." :
+            "A Twelve Data não fornece volume negociado pra XAU/USD (comum em metais/forex) — o filtro de volume está usando um PROXY pela amplitude do candle, não volume de mercado de verdade. Veja 'Fonte do volume' em Estado agora.") +
           " Atualiza automaticamente na próxima vez que você abrir esta página.";
       }
     } catch (err){
