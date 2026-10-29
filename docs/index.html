@@ -37,6 +37,17 @@
   .eyebrow{font-family:var(--font-mono);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);
     display:inline-flex;align-items:center;gap:7px}
   .eyebrow::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
+  /* faixa de status fixa — sempre visível rolando a página, padrão de ticker tipo trademap.com.br */
+  .status-strip{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:var(--surface);
+    border:1px solid var(--border);border-radius:8px;padding:9px 14px;display:flex;flex-wrap:wrap;
+    gap:5px 12px;align-items:center;font-size:.82rem;box-shadow:0 4px 14px rgba(0,0,0,.08)}
+  .ss-item{color:var(--fg);display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+  .ss-price strong{font-size:.95rem;font-weight:700}
+  .ss-change{font-weight:600}
+  .ss-change.up, .ss-session.up, .ss-item.up{color:var(--up)}
+  .ss-change.down, .ss-item.down{color:var(--down)}
+  .ss-sep{color:var(--border)}
+  #ssFreshness, #ssVol{color:var(--muted)}
   .hero{display:flex;flex-direction:column;gap:10px}
   .hero p{max-width:66ch}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
@@ -126,6 +137,23 @@
   .ticket-actions{display:flex;gap:10px;flex-wrap:wrap}
   .copy-ok{color:var(--pass);font-size:.78rem}
 
+  /* COT: card "valor atual + delta + histórico curto", padrão inspirado no trademap.com.br */
+  .cot-headline{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-end;gap:10px}
+  .cot-headline-label{display:block;font-family:var(--font-mono);font-size:.7rem;color:var(--muted);
+    text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+  .cot-headline-value{font-size:1.3rem;font-weight:700;font-variant-numeric:tabular-nums}
+  .cot-headline-value.up{color:var(--up)} .cot-headline-value.down{color:var(--down)}
+  .cot-headline-delta{font-family:var(--font-mono);font-size:.82rem;font-weight:600;padding:4px 10px;
+    border-radius:999px;background:var(--border);color:var(--muted);white-space:nowrap}
+  .cot-headline-delta.up{background:var(--pass-soft);color:var(--pass)}
+  .cot-headline-delta.down{background:var(--block-soft);color:var(--block)}
+  .cot-spark-wrap{border:1px solid var(--border);border-radius:6px;padding:9px 10px;background:var(--code-bg);margin-top:10px}
+  .cot-spark{display:block}
+  .cot-spark-area.up{fill:var(--pass-soft)} .cot-spark-area.down{fill:var(--block-soft)}
+  .cot-spark-line{stroke-width:1.6}
+  .cot-spark-line.up{stroke:var(--up)} .cot-spark-line.down{stroke:var(--down)}
+  .cot-spark-dot.up{fill:var(--up)} .cot-spark-dot.down{fill:var(--down)}
+
   /* relógio de sessão */
   .session-row{display:flex;flex-wrap:wrap;gap:16px;align-items:center}
   .session-badge{font-family:var(--font-mono);font-size:.8rem;padding:6px 12px;border-radius:5px;font-weight:600;
@@ -142,6 +170,16 @@
 </style>
 
 <main>
+
+  <div class="status-strip" id="statusStrip">
+    <span class="ss-item ss-price"><strong class="mono" id="ssPrice">—</strong><span class="ss-change mono" id="ssChange"></span></span>
+    <span class="ss-sep">·</span>
+    <span class="ss-item mono" id="ssSession">—</span>
+    <span class="ss-sep">·</span>
+    <span class="ss-item mono" id="ssFreshness">—</span>
+    <span class="ss-sep">·</span>
+    <span class="ss-item mono" id="ssVol">—</span>
+  </div>
 
   <section class="hero">
     <span class="eyebrow">Painel de operação manual · roda a mesma lógica do indicador</span>
@@ -647,6 +685,7 @@
   // se o volume de cada fonte é negociado de verdade ou um proxy pela amplitude do candle —
   // mostrado em "Estado agora" pra nunca passar proxy por dado real
   let volumeReal = { demo:false, custom:null, live:null }; // null = ainda não carregou essa fonte
+  let lastLiveFetchAt = null; // timestamp da última busca bem-sucedida na Twelve Data
 
   const el = (id)=>document.getElementById(id);
   const ids = Object.keys(DEFAULTS);
@@ -698,6 +737,7 @@
     const graded = riskGate(eligible, p);
 
     renderSummary(candles, result, graded);
+    renderStatusStrip(candles);
     renderChart(candles, result, graded, pending, p);
     renderTable(graded, candles, p);
     renderPending(pending, candles, p);
@@ -816,7 +856,20 @@
   const COT_URL = "https://publicreporting.cftc.gov/resource/6dca-aqww.json"
     + "?$where=" + encodeURIComponent("commodity_name='GOLD' AND futonly_or_combined='FutOnly' AND contract_market_name='GOLD'")
     + "&$order=" + encodeURIComponent("report_date_as_yyyy_mm_dd DESC")
-    + "&$limit=2";
+    + "&$limit=12";
+
+  // caminho (linha+área) de um sparkline simples a partir de uma série de valores
+  function sparklinePath(values, width, height, pad){
+    const n = values.length;
+    if (n<2) return null;
+    const min = Math.min(...values), max = Math.max(...values), range = (max-min)||1;
+    const xStep = (width-2*pad)/(n-1);
+    const yOf = v => pad + (1-(v-min)/range)*(height-2*pad);
+    const pts = values.map((v,i)=>[pad+i*xStep, yOf(v)]);
+    const line = pts.map((p,i)=>(i===0?"M":"L")+p[0].toFixed(1)+","+p[1].toFixed(1)).join(" ");
+    const area = line+" L"+pts[pts.length-1][0].toFixed(1)+","+(height-pad)+" L"+pts[0][0].toFixed(1)+","+(height-pad)+" Z";
+    return { line, area, lastPt: pts[pts.length-1] };
+  }
 
   async function loadCot(){
     const box = el("cotBox");
@@ -832,11 +885,28 @@
       const netChange = netPrev!=null ? netNow-netPrev : null;
       const dateLabel = new Date(latest.report_date_as_yyyy_mm_dd).toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});
       const dir = netNow>=0 ? "comprados" : "vendidos";
+      const trendCls = netNow>=0 ? "up" : "down";
+
+      const rowsAsc = [...rows].reverse();
+      const netSeries = rowsAsc.map(r => (+r.noncomm_positions_long_all) - (+r.noncomm_positions_short_all));
+      const spark = sparklinePath(netSeries, 320, 46, 4);
+      const sparkSvg = spark ? (
+        '<svg viewBox="0 0 320 46" width="100%" height="46" preserveAspectRatio="none" class="cot-spark" role="img" aria-label="posicionamento líquido, últimas '+netSeries.length+' semanas">'+
+          '<path d="'+spark.area+'" class="cot-spark-area '+trendCls+'"></path>'+
+          '<path d="'+spark.line+'" class="cot-spark-line '+trendCls+'" fill="none"></path>'+
+          '<circle cx="'+spark.lastPt[0].toFixed(1)+'" cy="'+spark.lastPt[1].toFixed(1)+'" r="2.6" class="cot-spark-dot '+trendCls+'"></circle>'+
+        '</svg>'
+      ) : '<p class="controls-note">Histórico curto demais pra desenhar o gráfico ainda.</p>';
+
       box.innerHTML =
-        '<div class="summary-grid">'+
-          '<div class="stat"><span class="label">Relatório de</span><span class="value">'+dateLabel+'</span></div>'+
-          '<div class="stat"><span class="label">Especuladores (non-commercial)</span><span class="value '+(netNow>=0?"up":"down")+'">'+Math.abs(netNow).toLocaleString("pt-BR")+' líq. '+dir+'</span></div>'+
-          '<div class="stat"><span class="label">Variação na semana</span><span class="value '+(netChange==null?"":netChange>=0?"up":"down")+'">'+(netChange==null?"—":(netChange>=0?"+":"")+netChange.toLocaleString("pt-BR")+" contratos")+'</span></div>'+
+        '<div class="cot-headline">'+
+          '<div><span class="cot-headline-label">Especuladores (non-commercial) · relatório de '+dateLabel+'</span>'+
+          '<div class="cot-headline-value '+trendCls+'">'+Math.abs(netNow).toLocaleString("pt-BR")+' contratos líq. '+dir+'</div></div>'+
+          '<span class="cot-headline-delta '+(netChange==null?"":netChange>=0?"up":"down")+'">'+(netChange==null?"sem comparação":(netChange>=0?"+":"")+netChange.toLocaleString("pt-BR")+" na semana")+'</span>'+
+        '</div>'+
+        '<div class="cot-spark-wrap">'+sparkSvg+
+          '<p class="controls-note" style="margin-top:4px">Posicionamento líquido · últimas '+netSeries.length+' semanas de relatório</p></div>'+
+        '<div class="summary-grid" style="margin-top:12px">'+
           '<div class="stat"><span class="label">Open interest</span><span class="value">'+(+latest.open_interest_all).toLocaleString("pt-BR")+'</span></div>'+
         '</div>'+
         '<p class="controls-note" style="margin-top:10px">Fato publicado, não previsão — mostra onde os grandes especuladores estavam posicionados na data do relatório, não onde estarão.</p>';
@@ -873,7 +943,7 @@
   })();
 
   // ---------- relógio de sessão (hora real do navegador, não dos dados carregados) ----------
-  function updateSessionClock(){
+  function getSessionInfo(){
     const now = new Date();
     const day = now.getUTCDay(); // 0=domingo .. 6=sábado
     const h = now.getUTCHours(), m = now.getUTCMinutes();
@@ -893,15 +963,56 @@
     else if (h>=13 && h<22) sessionLabel = "Nova York";
     else sessionLabel = "Ásia";
 
+    const minsToFridayClose = day===5 ? closeFriday-minutesNow : Infinity;
+    const minsSinceSundayOpen = day===0 ? minutesNow-openSunday : Infinity;
+    const nearGap = (minsToFridayClose>=0 && minsToFridayClose<=120) || (minsSinceSundayOpen>=0 && minsSinceSundayOpen<=120);
+    return { now, isOpen, sessionLabel, nearGap };
+  }
+
+  function updateSessionClock(){
+    const { now, isOpen, sessionLabel, nearGap } = getSessionInfo();
     const marketEl = el("sessionMarket"), nowEl = el("sessionNow"), warnEl = el("sessionGapWarning");
     marketEl.textContent = isOpen ? "Mercado aberto" : "Mercado fechado (fim de semana)";
     marketEl.className = "session-badge "+(isOpen?"open":"closed");
     nowEl.textContent = now.toUTCString().slice(17,22)+" UTC · "+sessionLabel;
-
-    const minsToFridayClose = day===5 ? closeFriday-minutesNow : Infinity;
-    const minsSinceSundayOpen = day===0 ? minutesNow-openSunday : Infinity;
-    const nearGap = (minsToFridayClose>=0 && minsToFridayClose<=120) || (minsSinceSundayOpen>=0 && minsSinceSundayOpen<=120);
     warnEl.hidden = !nearGap;
+    renderStatusStrip(currentCandles());
+  }
+
+  function formatElapsed(ms){
+    const s = Math.max(0, Math.round(ms/1000));
+    if (s<60) return s+"s atrás";
+    const mins = Math.round(s/60);
+    if (mins<60) return mins+"min atrás";
+    return Math.round(mins/60)+"h atrás";
+  }
+
+  // faixa de status fixa no topo — preço, variação, sessão e frescor do dado sempre visíveis,
+  // sem precisar rolar a página de volta (inspirado no ticker fixo do trademap.com.br)
+  function renderStatusStrip(candles){
+    if (!candles || !candles.length) return;
+    const last = candles[candles.length-1], prev = candles.length>1 ? candles[candles.length-2] : null;
+    el("ssPrice").textContent = last.c.toFixed(2);
+    const changeEl = el("ssChange");
+    if (prev){
+      const diff = last.c-prev.c, pct = prev.c ? (diff/prev.c)*100 : 0;
+      changeEl.textContent = (diff>=0?"+":"")+diff.toFixed(2)+" ("+(pct>=0?"+":"")+pct.toFixed(2)+"%)";
+      changeEl.className = "ss-change "+(diff>=0?"up":"down");
+    } else { changeEl.textContent = ""; changeEl.className = "ss-change"; }
+
+    const { isOpen, sessionLabel } = getSessionInfo();
+    const sessEl = el("ssSession");
+    sessEl.textContent = (isOpen?"Mercado aberto":"Mercado fechado")+" · "+sessionLabel;
+    sessEl.className = "ss-item "+(isOpen?"up":"down");
+
+    const freshEl = el("ssFreshness");
+    if (dataSource==="live") freshEl.textContent = lastLiveFetchAt ? "atualizado "+formatElapsed(Date.now()-lastLiveFetchAt) : "buscando dado ao vivo…";
+    else if (dataSource==="custom") freshEl.textContent = "CSV carregado — não é ao vivo";
+    else freshEl.textContent = "demonstração — não é ao vivo";
+
+    const volEl = el("ssVol");
+    const real = volumeReal[dataSource];
+    volEl.textContent = dataSource==="demo" ? "vol: sintético" : real==null ? "vol: —" : real ? "vol: real" : "vol: proxy";
   }
 
   function trendLabel(v){ return v===1?"ALTA":v===-1?"BAIXA":"NEUTRO"; }
@@ -1219,6 +1330,7 @@
       liveData = rows.map(r=>({ t:r.t, o:r.o, h:r.h, l:r.l, c:r.c,
         v: hasRealVolume ? (r.v||0) : Math.max(1, Math.round((r.h-r.l)*1000)) }));
       volumeReal.live = hasRealVolume;
+      lastLiveFetchAt = Date.now();
       if (!silent || dataSource==="live"){ dataSource = "live"; draw(); }
       checkNewSignalsForNotify(liveData);
       if (!silent){
