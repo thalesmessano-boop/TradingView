@@ -1228,7 +1228,7 @@
         status.textContent = liveData.length+" candles reais carregados, de "+fmt(first)+" a "+fmt(last)+". "+
           (hasRealVolume ? "Volume real." :
             "A Twelve Data não fornece volume negociado pra XAU/USD (comum em metais/forex) — o filtro de volume está usando um PROXY pela amplitude do candle, não volume de mercado de verdade. Veja 'Fonte do volume' em Estado agora.") +
-          " Atualiza sozinho a cada ~3 min enquanto esta aba estiver em foco (ou sempre, se as notificações estiverem ligadas).";
+          " Atualiza sozinho a cada ~2 min, o tempo todo, mesmo com esta aba em segundo plano.";
       }
     } catch (err){
       if (!silent){
@@ -1335,17 +1335,16 @@
     updateNotifyStatus();
   });
   updateNotifyStatus();
-  // busca de novo sozinho a cada 3 min — ou se as notificações estão ligadas (aí vale mesmo com a
-  // aba em segundo plano, que é bem o ponto de notificar), ou se você está olhando a aba Preço ao
-  // vivo agora com a aba em foco (sem gastar sua cota grátis da Twelve Data enquanto ninguém olha).
-  // 3 min = até 480 buscas/dia no pior caso, dentro do limite grátis de 800/dia com folga pra
-  // atualização manual. É o mais perto de "tempo real" que dá pra chegar sem um plano pago ou
-  // WebSocket (a Twelve Data só libera WebSocket de verdade — ~170ms — nos planos pagos).
+  // busca de novo sozinho o tempo todo — em segundo plano também, sem depender da aba estar em
+  // foco nem das notificações ligadas, pra ficar atualizado mesmo com a corretora na outra tela/aba.
+  // O limite é a cota grátis da Twelve Data: 800 buscas/dia. A cada 2 min dá até 720/dia rodando
+  // 24h — o mais apertado que dá pra ir sem estourar a cota e a busca começar a falhar no fim do
+  // dia (o que deixaria tudo PARADO, bem pior que uma pequena defasagem). Pra tempo real de verdade
+  // (sem nenhum delay) só com WebSocket pago da Twelve Data (~170ms) ou outra fonte paga.
   setInterval(()=>{
     if (!loadLiveKey()) return;
-    const watchingLive = dataSource==="live" && !document.hidden;
-    if (notifyEnabled || watchingLive) fetchLiveData({silent:true});
-  }, 3*60*1000);
+    fetchLiveData({silent:true});
+  }, 2*60*1000);
   el("csvFile").addEventListener("change", (e)=>{
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
