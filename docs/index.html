@@ -251,6 +251,10 @@
       <strong>2× a sensibilidade de pivô micro</strong> em candles (com os padrões: 10 candles de 15 min = 2h30).
       Isso é pra você começar a observar o mercado cedo — não é ainda um ticket, pode mudar ou sumir até confirmar.</p>
     </div>
+    <div class="controls-row" style="margin-bottom:12px">
+      <button id="btnEnableNotify">Ativar notificações do navegador</button>
+      <span class="controls-note" id="notifyStatus"></span>
+    </div>
     <div id="pendingBox"><p class="controls-note">Nenhum alerta pendente agora.</p></div>
   </section>
 
@@ -1102,13 +1106,17 @@
   function loadLiveKey(){ try { return localStorage.getItem(LIVE_KEY_STORAGE) || ""; } catch { return ""; } }
   function saveLiveKey(k){ try { localStorage.setItem(LIVE_KEY_STORAGE, k); } catch {} }
 
-  async function fetchLiveData(){
+  async function fetchLiveData(opts){
+    opts = opts || {};
+    const silent = !!opts.silent; // polling em segundo plano: não mexe no texto de status nem força a aba
     const status = el("liveStatus");
-    const apiKey = el("liveApiKey").value.trim();
-    if (!apiKey){ status.textContent = "Cole sua chave da Twelve Data acima primeiro."; status.style.color = "var(--block)"; return; }
-    saveLiveKey(apiKey);
-    status.style.color = "var(--muted)";
-    status.textContent = "Buscando candles reais de XAU/USD…";
+    const apiKey = silent ? loadLiveKey() : el("liveApiKey").value.trim();
+    if (!apiKey){
+      if (!silent){ status.textContent = "Cole sua chave da Twelve Data acima primeiro."; status.style.color = "var(--block)"; }
+      return;
+    }
+    if (!silent) saveLiveKey(apiKey);
+    if (!silent){ status.style.color = "var(--muted)"; status.textContent = "Buscando candles reais de XAU/USD…"; }
     const url = "https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=15min&outputsize=2000&timezone=UTC&apikey="+encodeURIComponent(apiKey);
     try {
       const resp = await fetch(url);
@@ -1123,21 +1131,25 @@
       const hasRealVolume = rows.some(r=>r.v!=null && r.v>0);
       liveData = rows.map(r=>({ t:r.t, o:r.o, h:r.h, l:r.l, c:r.c,
         v: hasRealVolume ? (r.v||0) : Math.max(1, Math.round((r.h-r.l)*1000)) }));
-      dataSource = "live";
-      draw();
-      const first = new Date(liveData[0].t), last = new Date(liveData[liveData.length-1].t);
-      const fmt = (d)=>d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
-      status.style.color = "var(--pass)";
-      status.textContent = liveData.length+" candles reais carregados, de "+fmt(first)+" a "+fmt(last)+
-        (hasRealVolume ? " — volume real." : " — sem volume na API, usando proxy pelo range.") +
-        " Atualiza automaticamente na próxima vez que você abrir esta página.";
+      if (!silent || dataSource==="live"){ dataSource = "live"; draw(); }
+      checkNewSignalsForNotify(liveData);
+      if (!silent){
+        const first = new Date(liveData[0].t), last = new Date(liveData[liveData.length-1].t);
+        const fmt = (d)=>d.toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+        status.style.color = "var(--pass)";
+        status.textContent = liveData.length+" candles reais carregados, de "+fmt(first)+" a "+fmt(last)+
+          (hasRealVolume ? " — volume real." : " — sem volume na API, usando proxy pelo range.") +
+          " Atualiza automaticamente na próxima vez que você abrir esta página.";
+      }
     } catch (err){
-      status.style.color = "var(--block)";
-      status.textContent = "Não consegui buscar (" + (err.message||err) + "). Confira se a chave está certa e se o limite diário gratuito não estourou.";
+      if (!silent){
+        status.style.color = "var(--block)";
+        status.textContent = "Não consegui buscar (" + (err.message||err) + "). Confira se a chave está certa e se o limite diário gratuito não estourou.";
+      }
     }
   }
-  el("btnSaveLiveKey").addEventListener("click", fetchLiveData);
-  el("btnRefreshLive").addEventListener("click", fetchLiveData);
+  el("btnSaveLiveKey").addEventListener("click", ()=>fetchLiveData());
+  el("btnRefreshLive").addEventListener("click", ()=>fetchLiveData());
 
   // se já existe uma chave salva, busca sozinho ao abrir a página — sem precisar fazer nada
   (function autoLoadLive(){
@@ -1149,6 +1161,92 @@
       fetchLiveData();
     }
   })();
+
+  // ---------- notificações do navegador (alerta pendente + sinal confirmado) ----------
+  const NOTIFY_ENABLED_KEY = "xau-notify-enabled";
+  let notifyEnabled = false;
+  try { notifyEnabled = localStorage.getItem(NOTIFY_ENABLED_KEY) === "1"; } catch {}
+  let notifyBaselineReady = false;
+  let seenPendingIds = new Set();
+  let seenPassIds = new Set();
+
+  const signalId = (s)=> s.t+"|"+s.side+"|"+s.event;
+
+  function sendBrowserNotification(title, body){
+    if (!notifyEnabled || typeof Notification === "undefined" || Notification.permission!=="granted") return;
+    try { const n = new Notification(title, { body }); setTimeout(()=>n.close(), 20000); } catch {}
+  }
+
+  // compara os alertas pendentes e sinais confirmados desta busca com os da busca anterior;
+  // a primeira busca só estabelece a base (não notifica o histórico todo de uma vez)
+  function checkNewSignalsForNotify(candles){
+    if (!notifyEnabled) return;
+    const p = readParams();
+    const result = runPipeline(candles, p);
+    const confirmBars = p.microSwingLen * 2;
+    const lastIndex = candles.length - 1;
+    const pending = result.signals.filter(s => (lastIndex - s.i) < confirmBars);
+    const eligible = result.signals.filter(s => (lastIndex - s.i) >= confirmBars);
+    const passNow = riskGate(eligible, p).filter(g=>g.verdict==="PASS");
+
+    const curPendingIds = new Set(pending.map(signalId));
+    const curPassIds = new Set(passNow.map(signalId));
+
+    if (notifyBaselineReady){
+      for (const s of pending){
+        if (!seenPendingIds.has(signalId(s))){
+          sendBrowserNotification("⏳ Novo alerta XAUUSD", s.side+" "+s.event+" formado — aguardando confirmação (~"+(confirmBars*15)+" min).");
+        }
+      }
+      for (const g of passNow){
+        if (!seenPassIds.has(signalId(g))){
+          sendBrowserNotification("✅ Sinal confirmado XAUUSD", g.side+" "+g.event+" — entrada perto de "+g.entry.toFixed(2)+", stop "+g.sl.toFixed(2)+". Ticket pronto no painel.");
+        }
+      }
+    }
+    seenPendingIds = curPendingIds;
+    seenPassIds = curPassIds;
+    notifyBaselineReady = true;
+  }
+
+  function updateNotifyStatus(){
+    const s = el("notifyStatus"), btn = el("btnEnableNotify");
+    if (typeof Notification === "undefined"){
+      s.textContent = "Notificações não funcionam aqui (navegador sem suporte, ou dentro do visualizador de artefato do Claude) — abra o site publicado.";
+      btn.disabled = true; return;
+    }
+    if (Notification.permission === "denied"){
+      s.textContent = "Bloqueadas nas configurações do navegador pra este site. Libere manualmente e recarregue a página.";
+      btn.textContent = "Bloqueado pelo navegador"; btn.disabled = true; return;
+    }
+    btn.disabled = false;
+    if (notifyEnabled && Notification.permission === "granted"){
+      btn.textContent = "Desativar notificações";
+      s.textContent = "Ativadas — avisa quando um alerta surgir e quando um sinal confirmar, mesmo com a aba em segundo plano (checa a cada 5 min). Precisa de uma chave da Twelve Data salva acima.";
+    } else {
+      btn.textContent = "Ativar notificações do navegador";
+      s.textContent = "Avisa aqui no navegador quando aparecer um BOS/CHoCH e quando um sinal confirmar — só funciona no site publicado, com uma chave da Twelve Data salva.";
+    }
+  }
+  el("btnEnableNotify").addEventListener("click", async ()=>{
+    if (typeof Notification === "undefined") return;
+    if (notifyEnabled){
+      notifyEnabled = false;
+      try { localStorage.setItem(NOTIFY_ENABLED_KEY, "0"); } catch {}
+      updateNotifyStatus();
+      return;
+    }
+    const perm = await Notification.requestPermission();
+    if (perm === "granted"){
+      notifyEnabled = true;
+      try { localStorage.setItem(NOTIFY_ENABLED_KEY, "1"); } catch {}
+      try { new Notification("XAU/USD — notificações ativadas", { body: "Você será avisado aqui quando surgir um novo alerta ou um sinal confirmar." }); } catch {}
+      fetchLiveData({silent:true});
+    }
+    updateNotifyStatus();
+  });
+  updateNotifyStatus();
+  setInterval(()=>{ if (notifyEnabled) fetchLiveData({silent:true}); }, 5*60*1000);
   el("csvFile").addEventListener("change", (e)=>{
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
