@@ -1,0 +1,210 @@
+//@version=5
+// =============================================================================
+// XAU/USD - Alinhamento Macro/Micro com BOS, CHoCH, Volume e rotulagem de ondas
+// -----------------------------------------------------------------------------
+// Esta ferramenta NAO faz uma contagem de Ondas de Elliott rigorosa (isso e
+// inerentemente subjetivo). Ela usa uma heuristica baseada em pivos de preco
+// para rotular a sequencia de swings como 1-2-3-4-5 / A-B-C, servindo como
+// contexto visual. A decisao de entrada e objetiva e vem de BOS/CHoCH + volume,
+// so disparando quando o timeframe macro (tendencia maior) concorda com o
+// timeframe micro (gatilho de entrada).
+// =============================================================================
+indicator("XAUUSD Macro/Micro BOS-CHoCH + Volume", shorttitle = "XAU MacroMicro", overlay = true, max_labels_count = 500, max_lines_count = 500)
+
+// ---------------------------------------------------------------------------
+// INPUTS
+// ---------------------------------------------------------------------------
+grpMacro = "Macro (contexto / tendencia maior)"
+macroTF        = input.timeframe("240", "Timeframe macro", group = grpMacro, tooltip = "Timeframe usado para definir a tendencia maior (ex: 240 = 4H, D, W). O sinal so dispara se o micro estiver alinhado com esta tendencia.")
+macroSwingLen  = input.int(8, "Sensibilidade dos pivos (macro)", minval = 2, group = grpMacro)
+
+grpMicro = "Micro (gatilho de entrada)"
+microSwingLen  = input.int(5, "Sensibilidade dos pivos (micro)", minval = 2, group = grpMicro, tooltip = "Rode o indicador no timeframe que voce quer usar como gatilho (ex: 15m, 1H).")
+
+grpVol = "Filtro de Volume"
+volSmaLen      = input.int(20, "Media de volume (periodo)", minval = 5, group = grpVol)
+volMult        = input.float(1.5, "Volume minimo x media", minval = 1.0, step = 0.1, group = grpVol, tooltip = "So considera o rompimento valido se o volume do candle for maior que a media x este multiplicador.")
+
+grpRisk = "Gestao de Risco"
+atrLen         = input.int(14, "ATR (periodo)", minval = 1, group = grpRisk)
+atrBuffer      = input.float(0.25, "Buffer do Stop (x ATR)", minval = 0.0, step = 0.05, group = grpRisk, tooltip = "Distancia extra alem do swing invalidado, em multiplos de ATR, para posicionar o stop.")
+rrRatio        = input.float(2.0, "Relacao Risco:Retorno (alvo)", minval = 0.5, step = 0.5, group = grpRisk)
+
+grpAlert = "Webhook / Alerta"
+webhookSecret  = input.string("troque-este-segredo", "Segredo do webhook", group = grpAlert, tooltip = "Deve ser identico ao WEBHOOK_SECRET configurado no servidor que recebe o alerta.")
+riskPercent    = input.float(1.0, "Risco por operacao (%) [informativo]", minval = 0.1, step = 0.1, group = grpAlert)
+
+// ---------------------------------------------------------------------------
+// FUNCAO: tendencia de estrutura (HH/HL vs LH/LL) a partir de pivos
+// Usada tanto para o macro (via request.security) quanto poderia ser reusada.
+// Mantem estado proprio via var, isolado por contexto de series.
+// ---------------------------------------------------------------------------
+structureTrendFn(swingLen) =>
+    var int trend = 0
+    var float lastPH = na
+    var float prevPH = na
+    var float lastPL = na
+    var float prevPL = na
+
+    ph = ta.pivothigh(swingLen, swingLen)
+    pl = ta.pivotlow(swingLen, swingLen)
+
+    if not na(ph)
+        prevPH := lastPH
+        lastPH := ph
+        if not na(prevPH)
+            if lastPH > prevPH
+                trend := 1
+            else if lastPH < prevPH
+                trend := -1
+
+    if not na(pl)
+        prevPL := lastPL
+        lastPL := pl
+        if not na(prevPL)
+            if lastPL < prevPL
+                trend := -1
+            else if lastPL > prevPL
+                trend := 1
+
+    [trend, lastPH, lastPL]
+
+// ---------------------------------------------------------------------------
+// MACRO: tendencia maior calculada no timeframe macro
+// ---------------------------------------------------------------------------
+[macroTrend, macroPH, macroPL] = request.security(syminfo.tickerid, macroTF, structureTrendFn(macroSwingLen), lookahead = barmerge.lookahead_off)
+
+// ---------------------------------------------------------------------------
+// MICRO: estrutura, pivos e deteccao de BOS / CHoCH no timeframe do grafico
+// ---------------------------------------------------------------------------
+var int   microTrend   = 0
+var float lastSwingHigh = na
+var float prevSwingHigh = na
+var float lastSwingLow  = na
+var float prevSwingLow  = na
+var bool  bosUp   = false
+var bool  bosDown = false
+var bool  chochUp   = false
+var bool  chochDown = false
+
+microPH = ta.pivothigh(microSwingLen, microSwingLen)
+microPL = ta.pivotlow(microSwingLen, microSwingLen)
+
+// Atualiza os swings confirmados (com o atraso natural de "microSwingLen" barras)
+if not na(microPH)
+    prevSwingHigh := lastSwingHigh
+    lastSwingHigh := microPH
+if not na(microPL)
+    prevSwingLow := lastSwingLow
+    lastSwingLow := microPL
+
+bosUp   := false
+bosDown := false
+chochUp   := false
+chochDown := false
+
+// Rompimento de alta: fechamento acima da ultima maxima de swing confirmada
+if not na(lastSwingHigh) and ta.crossover(close, lastSwingHigh)
+    if microTrend >= 0
+        bosUp := true
+        microTrend := 1
+    else
+        chochUp := true
+        microTrend := 1
+
+// Rompimento de baixa: fechamento abaixo da ultima minima de swing confirmada
+if not na(lastSwingLow) and ta.crossunder(close, lastSwingLow)
+    if microTrend <= 0
+        bosDown := true
+        microTrend := -1
+    else
+        chochDown := true
+        microTrend := -1
+
+// ---------------------------------------------------------------------------
+// ROTULAGEM HEURISTICA DE ONDAS (1-2-3-4-5 / A-B-C)
+// Reinicia a contagem impulsiva sempre que ocorre um CHoCH (mudanca de carater).
+// ---------------------------------------------------------------------------
+var int waveCount = 0
+var bool corrective = false
+
+waveEvent = not na(microPH) or not na(microPL)
+if chochUp or chochDown
+    waveCount := 1
+    corrective := false
+else if waveEvent
+    waveCount := waveCount + 1
+    if waveCount > 5
+        waveCount := 1
+        corrective := not corrective
+
+waveLabelText() =>
+    if corrective
+        idx = (waveCount - 1) % 3
+        idx == 0 ? "A" : idx == 1 ? "B" : "C"
+    else
+        str.tostring(waveCount)
+
+if not na(microPH)
+    label.new(bar_index[microSwingLen], microPH, waveLabelText(), style = label.style_label_down, color = color.new(color.orange, 0), textcolor = color.white, size = size.tiny)
+if not na(microPL)
+    label.new(bar_index[microSwingLen], microPL, waveLabelText(), style = label.style_label_up, color = color.new(color.blue, 0), textcolor = color.white, size = size.tiny)
+
+// ---------------------------------------------------------------------------
+// FILTRO DE VOLUME
+// ---------------------------------------------------------------------------
+volAvg   = ta.sma(volume, volSmaLen)
+volRatio = volAvg > 0 ? volume / volAvg : 0.0
+volOk    = volRatio >= volMult
+
+// ---------------------------------------------------------------------------
+// ALINHAMENTO MACRO x MICRO + GATILHO
+// ---------------------------------------------------------------------------
+atrVal = ta.atr(atrLen)
+
+longTrigger  = (bosUp or chochUp) and volOk and macroTrend == 1 and microTrend == 1
+shortTrigger = (bosDown or chochDown) and volOk and macroTrend == -1 and microTrend == -1
+
+entryPrice = close
+
+longSL  = math.min(nz(lastSwingLow, close - atrVal), close) - atrVal * atrBuffer
+longTP  = entryPrice + (entryPrice - longSL) * rrRatio
+
+shortSL = math.max(nz(lastSwingHigh, close + atrVal), close) + atrVal * atrBuffer
+shortTP = entryPrice - (shortSL - entryPrice) * rrRatio
+
+eventLabel(isLong) =>
+    if isLong
+        chochUp ? "CHOCH" : "BOS"
+    else
+        chochDown ? "CHOCH" : "BOS"
+
+// ---------------------------------------------------------------------------
+// PLOTS E PAINEL DE CONTEXTO
+// ---------------------------------------------------------------------------
+plotshape(longTrigger, title = "Entrada Compra", style = shape.triangleup, location = location.belowbar, color = color.new(color.lime, 0), size = size.small)
+plotshape(shortTrigger, title = "Entrada Venda", style = shape.triangledown, location = location.abovebar, color = color.new(color.red, 0), size = size.small)
+
+bgcolor(macroTrend == 1 ? color.new(color.green, 92) : macroTrend == -1 ? color.new(color.red, 92) : na, title = "Contexto macro")
+
+var table infoTable = table.new(position.top_right, 2, 4, border_width = 1)
+if barstate.islast
+    table.cell(infoTable, 0, 0, "Macro", text_color = color.white, bgcolor = color.new(color.gray, 20))
+    table.cell(infoTable, 1, 0, macroTrend == 1 ? "ALTA" : macroTrend == -1 ? "BAIXA" : "NEUTRO", text_color = color.white, bgcolor = macroTrend == 1 ? color.new(color.green, 40) : macroTrend == -1 ? color.new(color.red, 40) : color.new(color.gray, 40))
+    table.cell(infoTable, 0, 1, "Micro", text_color = color.white, bgcolor = color.new(color.gray, 20))
+    table.cell(infoTable, 1, 1, microTrend == 1 ? "ALTA" : microTrend == -1 ? "BAIXA" : "NEUTRO", text_color = color.white, bgcolor = microTrend == 1 ? color.new(color.green, 40) : microTrend == -1 ? color.new(color.red, 40) : color.new(color.gray, 40))
+    table.cell(infoTable, 0, 2, "Onda", text_color = color.white, bgcolor = color.new(color.gray, 20))
+    table.cell(infoTable, 1, 2, waveLabelText(), text_color = color.white, bgcolor = color.new(color.gray, 40))
+    table.cell(infoTable, 0, 3, "Vol/Media", text_color = color.white, bgcolor = color.new(color.gray, 20))
+    table.cell(infoTable, 1, 3, str.tostring(volRatio, "#.##") + "x", text_color = color.white, bgcolor = volOk ? color.new(color.green, 40) : color.new(color.gray, 40))
+
+// ---------------------------------------------------------------------------
+// ALERTAS (webhook) - disparam ao fechamento da barra, com payload em JSON
+// ---------------------------------------------------------------------------
+if longTrigger
+    msg = '{"secret":"' + webhookSecret + '","symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","side":"BUY","event":"' + eventLabel(true) + '","macro_trend":"BULL","micro_trend":"BULL","timeframe":"' + timeframe.period + '","macro_timeframe":"' + macroTF + '","wave_label":"' + waveLabelText() + '","volume_ratio":' + str.tostring(volRatio, "#.##") + ',"entry":' + str.tostring(entryPrice) + ',"stop_loss":' + str.tostring(longSL) + ',"take_profit":' + str.tostring(longTP) + ',"rr":' + str.tostring(rrRatio) + ',"risk_percent":' + str.tostring(riskPercent) + ',"time":"' + str.format("{0,date,yyyy-MM-dd'T'HH:mm:ssZ}", time) + '"}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+if shortTrigger
+    msg = '{"secret":"' + webhookSecret + '","symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix + '","side":"SELL","event":"' + eventLabel(false) + '","macro_trend":"BEAR","micro_trend":"BEAR","timeframe":"' + timeframe.period + '","macro_timeframe":"' + macroTF + '","wave_label":"' + waveLabelText() + '","volume_ratio":' + str.tostring(volRatio, "#.##") + ',"entry":' + str.tostring(entryPrice) + ',"stop_loss":' + str.tostring(shortSL) + ',"take_profit":' + str.tostring(shortTP) + ',"rr":' + str.tostring(rrRatio) + ',"risk_percent":' + str.tostring(riskPercent) + ',"time":"' + str.format("{0,date,yyyy-MM-dd'T'HH:mm:ssZ}", time) + '"}'
+    alert(msg, alert.freq_once_per_bar_close)
