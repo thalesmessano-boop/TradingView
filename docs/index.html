@@ -1345,10 +1345,30 @@
   // mais recente, que pode ainda estar se formando). Trocar o array todo a cada busca fazia o
   // início da série mudar de poll pra poll (a Twelve Data só devolve as últimas 2000 velas), o
   // que reclassificava estrutura/sinais que já estavam confirmados — até com o ticket "aberto".
+  // rejeita um candle cujo fechamento salta mais de 20% do vizinho confiável anterior — um
+  // tick ruim/glitch da API (não um movimento real; XAU/USD não anda isso em 15min). Como agora
+  // só acrescentamos ao histórico (nunca trocamos o array inteiro), um tick ruim que entrasse
+  // ficaria lá pra sempre e corrompia a estrutura de forma permanente — por isso valida ANTES
+  // de deixar entrar, não depois.
+  const MAX_CANDLE_JUMP = 0.2;
   function mergeLiveCandles(existing, fresh){
-    if (!existing || !existing.length) return fresh;
+    if (!existing || !existing.length){
+      const out = []; let prevClose = null;
+      for (const c of fresh){
+        if (prevClose!=null && Math.abs(c.c-prevClose)/prevClose > MAX_CANDLE_JUMP) continue;
+        out.push(c); prevClose = c.c;
+      }
+      return out;
+    }
     const byTime = new Map(existing.map(c=>[c.t,c]));
-    for (const c of fresh) byTime.set(c.t, c);
+    const lastKnownT = existing[existing.length-1].t;
+    let prevClose = existing[existing.length-1].c;
+    const newOrRevised = fresh.filter(c=>c.t>=lastKnownT).sort((a,b)=>a.t-b.t);
+    for (const c of newOrRevised){
+      if (prevClose!=null && Math.abs(c.c-prevClose)/prevClose > MAX_CANDLE_JUMP) continue;
+      byTime.set(c.t, c);
+      prevClose = c.c;
+    }
     return [...byTime.values()].sort((a,b)=>a.t-b.t);
   }
 
@@ -1422,16 +1442,33 @@
 
   const signalId = (s)=> s.t+"|"+s.side+"|"+s.event;
 
+  // um stop técnico de verdade nunca fica perto do preço de entrada (ATR de XAU/USD em 15min
+  // fica bem abaixo disso) — serve só pra pegar sinal corrompido por um tick ruim da API
+  // (ver MAX_CANDLE_JUMP acima), nunca pra filtrar um sinal real.
+  function isSaneSignal(g){
+    if (!(g.entry>0) || !(g.sl>0)) return false;
+    return Math.abs(g.entry-g.sl)/g.entry < 0.10;
+  }
+
   // ---------- histórico permanente de sinais confirmados (nunca apaga, só acrescenta) ----------
   const SIGNAL_LOG_KEY = "xau-signal-log";
-  function loadSignalLog(){ try { return JSON.parse(localStorage.getItem(SIGNAL_LOG_KEY)||"{}"); } catch { return {}; } }
+  function loadSignalLog(){
+    try {
+      const raw = JSON.parse(localStorage.getItem(SIGNAL_LOG_KEY)||"{}");
+      // limpa qualquer entrada que já tivesse sido gravada corrompida antes dessa validação existir
+      const clean = {}; let removed = 0;
+      for (const [id,g] of Object.entries(raw)){ if (isSaneSignal(g)) clean[id]=g; else removed++; }
+      if (removed>0){ try { localStorage.setItem(SIGNAL_LOG_KEY, JSON.stringify(clean)); } catch {} }
+      return clean;
+    } catch { return {}; }
+  }
   function saveSignalLog(log){ try { localStorage.setItem(SIGNAL_LOG_KEY, JSON.stringify(log)); } catch {} }
   let signalLog = loadSignalLog(); // { [id]: sinal completo, gravado uma vez, nunca removido }
 
   function logConfirmedSignals(graded){
     let changed = false;
     for (const g of graded){
-      if (g.verdict !== "PASS") continue;
+      if (g.verdict !== "PASS" || !isSaneSignal(g)) continue;
       const id = signalId(g);
       if (!signalLog[id]){ signalLog[id] = { ...g, loggedAt: Date.now() }; changed = true; }
     }
