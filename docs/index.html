@@ -756,8 +756,13 @@
     // extra (2x) antes de tratar o sinal como estrutura estável o bastante pra contar.
     const confirmBars = p.microSwingLen * 2;
     const lastIndex = candles.length - 1;
-    const pending = result.signals.filter(s => (lastIndex - s.i) < confirmBars);
-    const eligible = result.signals.filter(s => (lastIndex - s.i) >= confirmBars);
+    // descarta sinal insano (stop desproporcional, entrada desconexa do preço atual) ANTES de
+    // qualquer outra coisa — mesmo que o dado ruim já esteja na memória desta aba (sem reload),
+    // nunca deixa um sinal assim chegar a aparecer, ser logado ou notificado
+    const refPrice = candles[candles.length-1].c;
+    const sanitizedSignals = result.signals.filter(s=>isSaneSignal(s, refPrice));
+    const pending = sanitizedSignals.filter(s => (lastIndex - s.i) < confirmBars);
+    const eligible = sanitizedSignals.filter(s => (lastIndex - s.i) >= confirmBars);
     const graded = riskGate(eligible, p);
 
     // um sinal que já apareceu como PASS (ticket mostrado, notificação enviada) fica registrado
@@ -1445,9 +1450,13 @@
   // um stop técnico de verdade nunca fica perto do preço de entrada (ATR de XAU/USD em 15min
   // fica bem abaixo disso) — serve só pra pegar sinal corrompido por um tick ruim da API
   // (ver MAX_CANDLE_JUMP acima), nunca pra filtrar um sinal real.
-  function isSaneSignal(g){
+  function isSaneSignal(g, refPrice){
     if (!(g.entry>0) || !(g.sl>0)) return false;
-    return Math.abs(g.entry-g.sl)/g.entry < 0.10;
+    if (Math.abs(g.entry-g.sl)/g.entry >= 0.10) return false;
+    // entrada "desconexa" do preço real de agora — mesmo com um stop proporcional razoável,
+    // se a entrada em si não bate nem de longe com onde o mercado está, é dado ruim
+    if (refPrice>0 && Math.abs(g.entry-refPrice)/refPrice >= 0.30) return false;
+    return true;
   }
 
   // ---------- histórico permanente de sinais confirmados (nunca apaga, só acrescenta) ----------
