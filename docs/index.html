@@ -508,17 +508,34 @@
     return trend;
   }
 
+  // agrupa por TEMPO ABSOLUTO, não por índice do array. A Twelve Data sempre devolve as
+  // últimas N velas — a cada busca a janela desliza, "candles[0]" vira um instante diferente.
+  // Agrupar por índice fazia os limites de cada vela macro mudarem de busca pra busca,
+  // reclassificando a tendência macro de barras já antigas e fazendo sinais que já estavam
+  // confirmados (e até com o ticket "aberto") desaparecerem sozinhos num refresh seguinte.
+  // Agrupar por tempo (bucket = floor(t / (intervalo*groupSize))) mantém o mesmo agrupamento
+  // pra sempre pro mesmo instante real, não importa onde a janela buscada começa ou termina.
   function aggregate(candles, groupSize){
+    if (!candles.length) return { macro: [], macroStartIndex: [] };
+    const interval = candles.length>1 ? (candles[1].t-candles[0].t) : 900000;
+    const bucketMs = Math.max(1, interval) * groupSize;
     const macro=[], macroStartIndex=[];
-    for (let i=0;i<candles.length;i+=groupSize){
-      const group = candles.slice(i,i+groupSize);
+    let curBucket=null, curGroup=[], curStart=0;
+    const flush = ()=>{
       macro.push({
-        t:group[0].t, o:group[0].o, c:group[group.length-1].c,
-        h:Math.max(...group.map(x=>x.h)), l:Math.min(...group.map(x=>x.l)),
-        v:group.reduce((s,x)=>s+x.v,0),
+        t:curGroup[0].t, o:curGroup[0].o, c:curGroup[curGroup.length-1].c,
+        h:Math.max(...curGroup.map(x=>x.h)), l:Math.min(...curGroup.map(x=>x.l)),
+        v:curGroup.reduce((s,x)=>s+x.v,0),
       });
-      macroStartIndex.push(i);
+      macroStartIndex.push(curStart);
+    };
+    for (let i=0;i<candles.length;i++){
+      const bucket = Math.floor(candles[i].t/bucketMs);
+      if (curBucket===null){ curBucket=bucket; curStart=i; }
+      else if (bucket!==curBucket){ flush(); curGroup=[]; curBucket=bucket; curStart=i; }
+      curGroup.push(candles[i]);
     }
+    if (curGroup.length) flush();
     return { macro, macroStartIndex };
   }
 
@@ -554,7 +571,9 @@
     const microMacroTrend = new Array(candles.length).fill(0);
     for (let m=0;m<macro.length;m++){
       const confirmedAt = macroStartIndex[Math.min(m+p.macroSwingLen, macro.length-1)];
-      const from = macroStartIndex[m] + p.macroAggBars;
+      // início da PRÓXIMA barra macro (bucket por tempo pode ter menos que macroAggBars
+      // velas se houver um buraco nos dados, ex. fim de semana — não dá pra supor o tamanho fixo)
+      const from = m+1<macro.length ? macroStartIndex[m+1] : candles.length;
       const value = macroTrendSeries[m];
       for (let i=Math.max(from,confirmedAt);i<candles.length;i++) microMacroTrend[i]=value;
     }
@@ -1313,6 +1332,17 @@
   function loadLiveKey(){ try { return localStorage.getItem(LIVE_KEY_STORAGE) || ""; } catch { return ""; } }
   function saveLiveKey(k){ try { localStorage.setItem(LIVE_KEY_STORAGE, k); } catch {} }
 
+  // nunca troca o array inteiro por uma janela nova — só acrescenta candles novos (e atualiza o
+  // mais recente, que pode ainda estar se formando). Trocar o array todo a cada busca fazia o
+  // início da série mudar de poll pra poll (a Twelve Data só devolve as últimas 2000 velas), o
+  // que reclassificava estrutura/sinais que já estavam confirmados — até com o ticket "aberto".
+  function mergeLiveCandles(existing, fresh){
+    if (!existing || !existing.length) return fresh;
+    const byTime = new Map(existing.map(c=>[c.t,c]));
+    for (const c of fresh) byTime.set(c.t, c);
+    return [...byTime.values()].sort((a,b)=>a.t-b.t);
+  }
+
   async function fetchLiveData(opts){
     opts = opts || {};
     const silent = !!opts.silent; // polling em segundo plano: não mexe no texto de status nem força a aba
@@ -1336,8 +1366,9 @@
         v: v.volume!=null ? parseFloat(v.volume) : null,
       })).sort((a,b)=>a.t-b.t);
       const hasRealVolume = rows.some(r=>r.v!=null && r.v>0);
-      liveData = rows.map(r=>({ t:r.t, o:r.o, h:r.h, l:r.l, c:r.c,
+      const freshCandles = rows.map(r=>({ t:r.t, o:r.o, h:r.h, l:r.l, c:r.c,
         v: hasRealVolume ? (r.v||0) : Math.max(1, Math.round((r.h-r.l)*1000)) }));
+      liveData = mergeLiveCandles(liveData, freshCandles);
       volumeReal.live = hasRealVolume;
       lastLiveFetchAt = Date.now();
       if (!silent || dataSource==="live"){ dataSource = "live"; draw(); }
