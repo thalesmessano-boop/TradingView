@@ -760,12 +760,18 @@
     const eligible = result.signals.filter(s => (lastIndex - s.i) >= confirmBars);
     const graded = riskGate(eligible, p);
 
-    renderSummary(candles, result, graded);
+    // um sinal que já apareceu como PASS (ticket mostrado, notificação enviada) fica registrado
+    // pra sempre — mesmo que uma conta futura (outros parâmetros, mais dados chegando) não o
+    // reproduza mais, ele não some da tela. Só se aplica a dado ao vivo real.
+    if (dataSource==="live") logConfirmedSignals(graded);
+    const gradedH = dataSource==="live" ? mergeSignalHistory(graded, candles) : graded;
+
+    renderSummary(candles, result, gradedH);
     renderStatusStrip(candles);
-    renderChart(candles, result, graded, pending, p);
-    renderTable(graded, candles, p);
+    renderChart(candles, result, gradedH, pending, p);
+    renderTable(gradedH, candles, p);
     renderPending(pending, candles, p);
-    renderTicket(graded, candles, p);
+    renderTicket(gradedH, candles, p);
   }
 
   function renderPending(pending, candles, p){
@@ -784,7 +790,7 @@
   }
 
   function renderTicket(graded, candles, p){
-    const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS");
+    const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS" && g.i!=null && candles[g.i]);
     const card = el("ticketCard");
     const sizingBox = el("sizingBox");
     if (!lastPass){
@@ -1144,6 +1150,7 @@
     // gatilhos BOS/CHoCH -> triângulo sólido (PASS) ou contorno (BLOCK)
     markers = [];
     for (const g of graded){
+      if (g.i==null || !candles[g.i]) continue; // sinal do histórico cujo candle saiu da janela atual — sem onde desenhar
       const x = xOf(g.i);
       const up = g.side==="BUY";
       const y = up ? yOf(candles[g.i].l)+16 : yOf(candles[g.i].h)-16;
@@ -1172,7 +1179,7 @@
     }
 
     // níveis do último sinal aprovado
-    const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS");
+    const lastPass = [...graded].reverse().find(g=>g.verdict==="PASS" && g.i!=null && candles[g.i]);
     if (lastPass){
       const x0 = xOf(lastPass.i);
       ctx.setLineDash([4,3]); ctx.lineWidth=1;
@@ -1259,7 +1266,9 @@
         ? '<details class="wa"><summary><span class="badge pass">PASS</span> ver ticket</summary><pre>'+formatTicket(g, positionSize(g, parseFloat(el("accountSize").value)||0, parseFloat(el("riskPercentTrade").value)||0, parseFloat(el("contractSize").value)||0)).replace(/</g,"&lt;")+'</pre></details>'
         : '<span class="badge block" title="'+g.reason+'">BLOCK</span><div class="controls-note">'+g.reason+'</div>';
       let resultCell = '<span class="controls-note">—</span>';
-      if (g.verdict==="PASS"){
+      if (g.verdict==="PASS" && g.i==null){
+        resultCell = '<span class="controls-note" title="esse candle não está mais na janela de dados carregada — o sinal continua registrado, mas sem como recalcular o resultado">sem dado pra recalcular</span>';
+      } else if (g.verdict==="PASS"){
         const outcome = evaluateOutcome(g, candles, confirmBars);
         if (outcome.status==="ganho" || outcome.status==="perda") counts[outcome.status]++;
         else if (outcome.status==="aberto") counts.aberto++;
@@ -1412,6 +1421,46 @@
   let seenPassIds = new Set();
 
   const signalId = (s)=> s.t+"|"+s.side+"|"+s.event;
+
+  // ---------- histórico permanente de sinais confirmados (nunca apaga, só acrescenta) ----------
+  const SIGNAL_LOG_KEY = "xau-signal-log";
+  function loadSignalLog(){ try { return JSON.parse(localStorage.getItem(SIGNAL_LOG_KEY)||"{}"); } catch { return {}; } }
+  function saveSignalLog(log){ try { localStorage.setItem(SIGNAL_LOG_KEY, JSON.stringify(log)); } catch {} }
+  let signalLog = loadSignalLog(); // { [id]: sinal completo, gravado uma vez, nunca removido }
+
+  function logConfirmedSignals(graded){
+    let changed = false;
+    for (const g of graded){
+      if (g.verdict !== "PASS") continue;
+      const id = signalId(g);
+      if (!signalLog[id]){ signalLog[id] = { ...g, loggedAt: Date.now() }; changed = true; }
+    }
+    if (changed) saveSignalLog(signalLog);
+  }
+
+  // acha o índice do candle com esse horário exato na série ATUAL (busca binária — candles
+  // vêm ordenados por tempo). Necessário porque um sinal gravado antes de um reload da página
+  // tem um ".i" que valia pra uma janela de dados diferente da que temos agora.
+  function indexForTime(candles, t){
+    let lo=0, hi=candles.length-1;
+    if (hi<0) return -1;
+    while (lo<hi){ const mid=(lo+hi)>>1; if (candles[mid].t<t) lo=mid+1; else hi=mid; }
+    return candles[lo] && candles[lo].t===t ? lo : -1;
+  }
+
+  // junta os sinais calculados agora com os do histórico permanente que não aparecem mais no
+  // cálculo ao vivo — assim um sinal já confirmado nunca desaparece da tabela/ticket, mesmo que
+  // uma conta futura não o reproduza. Reindexa pela série atual quando o candle ainda existe nela.
+  function mergeSignalHistory(graded, candles){
+    const liveIds = new Set(graded.map(signalId));
+    const loggedOnly = [];
+    for (const g of Object.values(signalLog)){
+      if (liveIds.has(signalId(g))) continue;
+      const i = indexForTime(candles, g.t);
+      loggedOnly.push(i>=0 ? { ...g, i } : { ...g, i: undefined });
+    }
+    return [...graded, ...loggedOnly].sort((a,b)=>a.t-b.t);
+  }
 
   function sendBrowserNotification(title, body){
     if (!notifyEnabled || typeof Notification === "undefined" || Notification.permission!=="granted") return;
