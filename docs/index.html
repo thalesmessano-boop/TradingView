@@ -294,6 +294,40 @@
 
   <section class="card">
     <div class="section-head">
+      <h2>Matriz fundamentalista</h2>
+      <p>Referência fixa, direto da sua análise fundamentalista no vault — sem data ao vivo (não achei fonte
+      gratuita e confiável de calendário econômico), mas o "o que esperar de cada notícia" é o que importa.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Indicador / Evento</th><th>Cenário: acima do esperado</th><th>Impacto no XAU/USD</th></tr></thead>
+        <tbody>
+          <tr><td>Taxa de juros do Fed</td><td>Dólar se fortalece e rendimentos sobem</td><td><span class="badge block">Baixa</span></td></tr>
+          <tr><td>Inflação EUA (CPI/PCE)</td><td>Fed mantém juros altos por mais tempo</td><td><span class="badge block">Baixa</span> curto prazo · <span class="badge pass">Alta</span> se perda de controle monetário</td></tr>
+          <tr><td>Relatório de empregos (NFP)</td><td>Economia forte, reduz urgência de corte de juros</td><td><span class="badge block">Baixa</span></td></tr>
+          <tr><td>Riscos geopolíticos / guerras</td><td>Busca global por segurança e liquidez real</td><td><span class="badge pass">Alta</span></td></tr>
+          <tr><td>Compras de bancos centrais</td><td>Demanda institucional sólida no mercado à vista</td><td><span class="badge pass">Alta</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="controls-note" style="margin-top:10px">Os 4 pilares por trás disso: <strong>juros reais dos EUA</strong>
+    (Treasuries − inflação esperada, o principal direcionador — juro real sobe, ouro cai), <strong>DXY</strong>
+    (correlação inversa — dólar fraco, ouro sobe), <strong>geopolítica/VIX</strong> (ouro como refúgio em crise) e
+    <strong>fluxo de compra de bancos centrais</strong> (desdolarização cria piso estrutural de preço).</p>
+  </section>
+
+  <section class="card">
+    <div class="section-head">
+      <h2>DXY (Índice do Dólar)</h2>
+      <p>Calculado aqui no navegador a partir de 6 pares de câmbio, com a fórmula oficial do ICE — a Twelve Data
+      não tem o símbolo DXY direto. Atualiza a cada ~4h (não a cada 2min como o XAU/USD) pra não estourar a cota
+      grátis dividida entre os dois. Precisa da mesma chave da Twelve Data salva na aba "Preço ao vivo".</p>
+    </div>
+    <div id="dxyBox"><p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p></div>
+  </section>
+
+  <section class="card">
+    <div class="section-head">
       <h2>Alertas (aguardando confirmação)</h2>
       <p>Um rompimento de estrutura (BOS/CHoCH) aparece aqui no instante em que acontece — antes de confirmado.
       Pra confirmar que o pivô que sustenta o sinal é mesmo o extremo, o sistema precisa esperar
@@ -1016,6 +1050,45 @@
   el("btnCotRefresh").addEventListener("click", loadCot);
   loadCot();
 
+  // ---------- DXY calculado (a Twelve Data não tem o símbolo direto) ----------
+  // peso oficial do ICE pra cada par — fórmula pública, não muda
+  const DXY_WEIGHTS = { "EUR/USD":-0.576, "USD/JPY":0.136, "GBP/USD":-0.119, "USD/CAD":0.091, "USD/SEK":0.042, "USD/CHF":0.036 };
+  let dxyValue = null, dxyUpdatedAt = null;
+
+  async function fetchDxy(){
+    const box = el("dxyBox");
+    const apiKey = loadLiveKey();
+    if (!apiKey){ if (box) box.innerHTML = '<p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p>'; return; }
+    try {
+      const symbols = Object.keys(DXY_WEIGHTS).join(",");
+      const resp = await fetch("https://api.twelvedata.com/price?symbol="+encodeURIComponent(symbols)+"&apikey="+encodeURIComponent(apiKey));
+      const data = await resp.json();
+      let product = 1;
+      for (const [sym, weight] of Object.entries(DXY_WEIGHTS)){
+        const entry = data[sym];
+        const price = entry && parseFloat(entry.price);
+        if (!(price>0)) throw new Error("resposta sem preço válido pra "+sym);
+        product *= Math.pow(price, weight);
+      }
+      dxyValue = 50.14348112 * product;
+      dxyUpdatedAt = Date.now();
+      renderDxy();
+    } catch (err){
+      if (box) box.innerHTML = '<p class="controls-note" style="color:var(--block)">Não consegui calcular o DXY agora ('+(err.message||err)+').</p>';
+    }
+  }
+
+  function renderDxy(){
+    const box = el("dxyBox");
+    if (!box || dxyValue==null) return;
+    const when = new Date(dxyUpdatedAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    box.innerHTML =
+      '<div class="cot-headline"><div><span class="cot-headline-label">DXY calculado · '+when+'</span>'+
+      '<div class="cot-headline-value">'+dxyValue.toFixed(2)+'</div></div></div>'+
+      '<p class="controls-note" style="margin-top:8px">Calculado aqui a partir de 6 pares de câmbio pela fórmula do ICE — não é o índice oficial direto. '+
+      'Correlação inversa com o ouro: DXY subindo costuma pressionar XAU/USD pra baixo, e vice-versa.</p>';
+  }
+
   // ---------- widget oficial da TradingView — iframe de outro site, não roda dentro do Claude ----------
   (function loadTradingViewWidget(){
     const container = document.querySelector(".tradingview-widget-container__widget");
@@ -1482,7 +1555,7 @@
       }
     }
   }
-  el("btnSaveLiveKey").addEventListener("click", ()=>fetchLiveData());
+  el("btnSaveLiveKey").addEventListener("click", ()=>{ fetchLiveData(); fetchDxy(); });
   el("btnRefreshLive").addEventListener("click", ()=>fetchLiveData());
 
   // se já existe uma chave salva, busca sozinho ao abrir a página — sem precisar fazer nada
@@ -1732,5 +1805,9 @@
   draw();
   updateSessionClock();
   setInterval(updateSessionClock, 30000);
+
+  fetchDxy();
+  setInterval(fetchDxy, 4*60*60*1000); // 4h — contexto macro, não precisa de granularidade de minutos,
+                                        // e divide a cota grátis da Twelve Data com o XAU/USD ao vivo
 })();
 </script>
