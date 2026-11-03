@@ -247,6 +247,7 @@
       <div class="field"><label for="atrLen">ATR (período)</label><input type="number" id="atrLen" value="14" min="2"></div>
       <div class="field"><label for="atrBuffer">Buffer do stop (× ATR)</label><input type="number" id="atrBuffer" value="0.25" min="0" step="0.05"></div>
       <div class="field"><label for="rrRatio">R:R do indicador</label><input type="number" id="rrRatio" value="2.0" min="0.5" step="0.5"></div>
+      <div class="field"><label for="emaMacroLen">EMA de viés (macro)</label><input type="number" id="emaMacroLen" value="200" min="10" step="10"></div>
       <div class="field"><label for="cooldownMinutes">Cooldown entre sinais (min)</label><input type="number" id="cooldownMinutes" value="15" min="0"></div>
       <div class="field"><label for="maxSignalsPerDay">Limite diário de sinais</label><input type="number" id="maxSignalsPerDay" value="6" min="1"></div>
       <div class="field"><label for="minRR">R:R mínimo (filtro de risco)</label><input type="number" id="minRR" value="1.5" min="0" step="0.1"></div>
@@ -565,6 +566,17 @@
     return out;
   }
 
+  function emaSeries(values, len){
+    const out = new Array(values.length).fill(null);
+    const k = 2/(len+1);
+    let prev = null;
+    for (let i=0;i<values.length;i++){
+      prev = prev==null ? values[i] : values[i]*k + prev*(1-k);
+      out[i] = prev;
+    }
+    return out;
+  }
+
   function runPipeline(candles, p){
     const { macro, macroStartIndex } = aggregate(candles, p.macroAggBars);
     const macroTrendSeries = structureTrend(macro, p.macroSwingLen);
@@ -580,6 +592,30 @@
 
     const { ph: microPH, pl: microPL } = computePivots(candles, p.microSwingLen);
     const atr = atrSeries(candles, p.atrLen);
+
+    // ATR calculado na barra MACRO (H4 por padrão), não na micro — um stop baseado em volatilidade
+    // de 15min fica curto demais pro XAU/USD real; a nota de Confluências Técnicas do vault é
+    // explícita sobre usar ATR do H4/Diário pro stop. Mapeia o valor de cada barra macro pra
+    // todas as micro velas dentro do seu intervalo (sem atraso de confirmação — ATR não precisa
+    // de janela futura como pivô precisa, só suaviza o passado).
+    const atrMacroSeries = atrSeries(macro, p.atrLen);
+    const atrMacro = new Array(candles.length).fill(null);
+    for (let m=0;m<macro.length;m++){
+      const from = macroStartIndex[m];
+      const to = m+1<macro.length ? macroStartIndex[m+1] : candles.length;
+      for (let i=from;i<to;i++) atrMacro[i] = atrMacroSeries[m];
+    }
+
+    // EMA 200 na barra macro como filtro de viés — "Define a tendência macro" (nota de
+    // Confluências Técnicas). Mesmo mapeamento macro->micro do ATR acima.
+    const emaMacroSeries = emaSeries(macro.map(c=>c.c), p.emaMacroLen);
+    const emaMacro = new Array(candles.length).fill(null);
+    for (let m=0;m<macro.length;m++){
+      const from = macroStartIndex[m];
+      const to = m+1<macro.length ? macroStartIndex[m+1] : candles.length;
+      for (let i=from;i<to;i++) emaMacro[i] = emaMacroSeries[m];
+    }
+
     const volumes = candles.map(c=>c.v);
     const volSma = smaSeries(volumes, p.volSmaLen);
 
@@ -611,23 +647,26 @@
       const volRatio = volSma[i] ? volumes[i]/volSma[i] : 0;
       const volOk = volRatio >= p.volMult;
       const macroTrendHere = microMacroTrend[i];
+      // viés de EMA 200 (macro) — só opera a favor dela, igual a regra documentada
+      const emaOkLong = emaMacro[i]!=null && c.c > emaMacro[i];
+      const emaOkShort = emaMacro[i]!=null && c.c < emaMacro[i];
 
-      const longTrigger = (bosUp||chochUp) && volOk && macroTrendHere===1 && microTrend===1;
-      const shortTrigger = (bosDown||chochDown) && volOk && macroTrendHere===-1 && microTrend===-1;
+      const longTrigger = (bosUp||chochUp) && volOk && macroTrendHere===1 && microTrend===1 && emaOkLong;
+      const shortTrigger = (bosDown||chochDown) && volOk && macroTrendHere===-1 && microTrend===-1 && emaOkShort;
 
       barMeta.push({ i, ph:microPH[i], pl:microPL[i], waveLabel: waveEvent?waveLabel:null,
         bosUp,bosDown,chochUp,chochDown, macroTrend:macroTrendHere, microTrend, volRatio, volOk });
 
-      if ((longTrigger||shortTrigger) && atr[i]!=null){
+      if ((longTrigger||shortTrigger) && atrMacro[i]!=null){
         const entryRaw = c.c;
         let slRaw, tpRaw, side, event;
         if (longTrigger){
           side="BUY"; event = chochUp?"CHOCH":"BOS";
-          slRaw = Math.min(lastSwingLow ?? entryRaw, entryRaw) - atr[i]*p.atrBuffer;
+          slRaw = Math.min(lastSwingLow ?? entryRaw, entryRaw) - atrMacro[i]*p.atrBuffer;
           tpRaw = entryRaw + (entryRaw-slRaw)*p.rrRatio;
         } else {
           side="SELL"; event = chochDown?"CHOCH":"BOS";
-          slRaw = Math.max(lastSwingHigh ?? entryRaw, entryRaw) + atr[i]*p.atrBuffer;
+          slRaw = Math.max(lastSwingHigh ?? entryRaw, entryRaw) + atrMacro[i]*p.atrBuffer;
           tpRaw = entryRaw - (slRaw-entryRaw)*p.rrRatio;
         }
         // arredonda entrada/stop/alvo pra 2 casas (o que a tela mostra) e SÓ DEPOIS deriva o R:R
@@ -639,7 +678,7 @@
         signals.push({ i, t:c.t, side, event, waveLabel, volRatio, entry, sl, tp, rr });
       }
     }
-    return { macro, barMeta, signals, atr, volSma };
+    return { macro, barMeta, signals, atr, atrMacro, emaMacro, volSma };
   }
 
   function riskGate(signals, cfg){
@@ -697,7 +736,7 @@
   // ---------- estado da página ----------
   const DEFAULTS = {
     macroAggBars:16, macroSwingLen:8, microSwingLen:5, volSmaLen:20, volMult:1.5,
-    atrLen:14, atrBuffer:0.25, rrRatio:2.0,
+    atrLen:14, atrBuffer:0.25, rrRatio:2.0, emaMacroLen:200,
     cooldownMinutes:15, maxSignalsPerDay:6, minRR:1.5, minStopUsd:1.0, maxStopUsd:50.0,
   };
   const STRESS = { cooldownMinutes:60, maxSignalsPerDay:1, minRR:2.5, minStopUsd:1.0, maxStopUsd:50.0 };
