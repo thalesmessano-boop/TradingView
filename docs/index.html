@@ -1,31 +1,35 @@
 <title>Painel XAU/USD</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230c0a07' stroke='%23e8b84a' stroke-width='2'/%3E%3Ctext x='16' y='21' font-family='Georgia,serif' font-size='14' font-weight='700' fill='%23e8b84a' text-anchor='middle'%3EAu%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
+  /* identidade: ouro (XAU) como cor de marca — reservado pra navegação, foco, destaque de
+     marca; verde/vermelho (--up/--down/--pass/--block) continuam só pra semântica de
+     compra/venda/aprovado/bloqueado, nunca usados como decoração, pra não confundir os dois. */
   :root{
-    --bg:#f3f5f6; --surface:#ffffff; --fg:#0d1117; --muted:#6b7280;
-    --accent:#0ea577; --accent-soft:#e2f7ef; --pass:#0ea577; --pass-soft:#e2f7ef;
-    --block:#e11d48; --block-soft:#fde3e9; --border:#e4e7eb; --code-bg:#eef1f3;
-    --up:#0ea577; --down:#e11d48; --neutral:#5c6270;
-    --info:#b45309; --info-soft:#fbead0;
+    --bg:#f6f3ec; --surface:#ffffff; --surface-alt:#fbf8f1; --fg:#171510; --muted:#75705f;
+    --accent:#96731a; --accent-soft:#f3e8c9; --pass:#0ea577; --pass-soft:#e2f7ef;
+    --block:#e11d48; --block-soft:#fde3e9; --border:#e6e0d1; --code-bg:#f1ebda;
+    --up:#0ea577; --down:#e11d48; --neutral:#6b6655;
+    --info:#c2460b; --info-soft:#fbe6d4;
     --font-display:'IBM Plex Sans',system-ui,sans-serif;
     --font-mono:'IBM Plex Mono',ui-monospace,Consolas,monospace;
   }
   @media (prefers-color-scheme: dark){
     :root:not([data-theme="light"]){
-      --bg:#0a0c10; --surface:#14171d; --fg:#e8eaed; --muted:#8a919c;
-      --accent:#17e3a6; --accent-soft:#0f2a22; --pass:#17e3a6; --pass-soft:#0f2a22;
-      --block:#ff3b5c; --block-soft:#3a0f18; --border:#1f242c; --code-bg:#171b22;
-      --up:#17e3a6; --down:#ff3b5c; --neutral:#8b90a0;
-      --info:#ffb648; --info-soft:#3a2710;
+      --bg:#0c0a07; --surface:#17130d; --surface-alt:#1c170f; --fg:#f1ece0; --muted:#9b9280;
+      --accent:#e8b84a; --accent-soft:#2e2412; --pass:#17e3a6; --pass-soft:#132b22;
+      --block:#ff3b5c; --block-soft:#331019; --border:#2a2417; --code-bg:#1b160e;
+      --up:#17e3a6; --down:#ff3b5c; --neutral:#948c79;
+      --info:#ff8a3d; --info-soft:#331f0c;
       color-scheme: dark;
     }
   }
   :root[data-theme="dark"]{
-    --bg:#0a0c10; --surface:#14171d; --fg:#e8eaed; --muted:#8a919c;
-    --accent:#17e3a6; --accent-soft:#0f2a22; --pass:#17e3a6; --pass-soft:#0f2a22;
-    --block:#ff3b5c; --block-soft:#3a0f18; --border:#1f242c; --code-bg:#171b22;
-    --up:#17e3a6; --down:#ff3b5c; --neutral:#8b90a0;
-    --info:#ffb648; --info-soft:#3a2710;
+    --bg:#0c0a07; --surface:#17130d; --surface-alt:#1c170f; --fg:#f1ece0; --muted:#9b9280;
+    --accent:#e8b84a; --accent-soft:#2e2412; --pass:#17e3a6; --pass-soft:#132b22;
+    --block:#ff3b5c; --block-soft:#331019; --border:#2a2417; --code-bg:#1b160e;
+    --up:#17e3a6; --down:#ff3b5c; --neutral:#948c79;
+    --info:#ff8a3d; --info-soft:#331f0c;
     color-scheme: dark;
   }
   *{box-sizing:border-box}
@@ -54,10 +58,28 @@
   #ssFreshness, #ssVol{color:var(--muted)}
   .hero{display:flex;flex-direction:column;gap:10px}
   .hero p{max-width:66ch}
-  .card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:18px 20px}
+  .card{background:var(--surface);border:1px solid var(--border);border-top:2px solid var(--accent);border-radius:8px;padding:18px 20px}
   .block-label{display:flex;flex-direction:column;gap:3px;margin-bottom:10px}
   .block-label .eyebrow{margin-bottom:1px}
   .section-head{display:flex;flex-direction:column;gap:3px;margin-bottom:12px}
+  .section-cat{font-family:var(--font-mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;margin:0 0 2px}
+  section{scroll-margin-top:62px}
+
+  /* masthead: marca + navegação por âncora — identidade visual do painel */
+  .masthead{display:flex;flex-wrap:wrap;gap:16px 28px;align-items:center;justify-content:space-between;
+    padding-bottom:4px}
+  .brand{display:flex;align-items:center;gap:11px}
+  .brand-mark{width:38px;height:38px;border-radius:50%;border:2px solid var(--accent);flex:none;
+    display:flex;align-items:center;justify-content:center;background:var(--surface-alt)}
+  .brand-mark span{font-family:Georgia,'Times New Roman',serif;font-weight:700;font-size:1.05rem;color:var(--accent)}
+  .brand-text{display:flex;flex-direction:column;gap:1px}
+  .brand-text strong{font-size:1.05rem;letter-spacing:.01em}
+  .brand-text small{font-family:var(--font-mono);font-size:.7rem;color:var(--muted);letter-spacing:.03em}
+  .masthead-nav{display:flex;flex-wrap:wrap;gap:4px 2px;overflow-x:auto}
+  .masthead-nav a{font-family:var(--font-mono);font-size:.72rem;color:var(--muted);text-decoration:none;
+    padding:6px 10px;border-radius:6px;white-space:nowrap}
+  .masthead-nav a:hover{color:var(--fg);background:var(--surface-alt)}
 
   /* controles */
   .controls-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:14px 16px}
@@ -178,6 +200,24 @@
 
 <main>
 
+  <div class="masthead">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><span>Au</span></span>
+      <span class="brand-text"><strong>XAU/USD</strong><small>PAINEL DE OPERAÇÃO MANUAL</small></span>
+    </div>
+    <nav class="masthead-nav" aria-label="Seções do painel">
+      <a href="#secDados">Dados</a>
+      <a href="#secParametros">Parâmetros</a>
+      <a href="#secEstado">Mercado agora</a>
+      <a href="#secFundamentos">Fundamentos</a>
+      <a href="#secAlertas">Alertas</a>
+      <a href="#secTicket">Ticket</a>
+      <a href="#secChart">Gráfico</a>
+      <a href="#secSinais">Sinais</a>
+      <a href="#secRegistro">Registro</a>
+    </nav>
+  </div>
+
   <div class="status-strip" id="statusStrip">
     <span class="ss-item ss-price"><strong class="mono" id="ssPrice">—</strong><span class="ss-change mono" id="ssChange"></span></span>
     <span class="ss-sep">·</span>
@@ -198,7 +238,8 @@
     você decidir e operar manualmente na sua corretora, na outra tela.</p>
   </section>
 
-  <section class="card">
+  <section class="card" id="secDados">
+    <p class="section-cat">Configuração</p>
     <div class="section-head"><h2>Dados</h2><p>Demonstração sintética por padrão, ou cole os seus candles.</p></div>
     <div class="tabs" role="tablist">
       <button class="tab" id="tabLive" role="tab" aria-selected="false">Preço ao vivo</button>
@@ -238,7 +279,8 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secParametros">
+    <p class="section-cat">Configuração</p>
     <div class="section-head"><h2>Parâmetros</h2><p>Os mesmos inputs do indicador Pine Script e do <code class="mono">risk.py</code>.</p></div>
     <div class="controls-grid">
       <div class="field"><label for="macroAggBars">Candles micro por macro</label><input type="number" id="macroAggBars" value="16" min="2"></div>
@@ -263,7 +305,8 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secEstado">
+    <p class="section-cat">Mercado agora</p>
     <div class="section-head"><h2>Estado agora</h2></div>
     <div class="summary-grid">
       <div class="stat"><span class="label">Tendência macro</span><span class="value" id="statMacro">—</span></div>
@@ -282,7 +325,8 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secCot">
+    <p class="section-cat">Mercado agora</p>
     <div class="section-head">
       <h2>Posicionamento institucional (COT · CFTC)</h2>
       <p>Direto do navegador, sem passar por mim — só funciona com este arquivo aberto fora do Claude (com internet).
@@ -294,7 +338,8 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secFundamentos">
+    <p class="section-cat">Fundamentos</p>
     <div class="section-head">
       <h2>Matriz fundamentalista</h2>
       <p>Referência fixa, direto da sua análise fundamentalista no vault — sem data ao vivo (não achei fonte
@@ -320,7 +365,8 @@
     estrutural de preço).</p>
   </section>
 
-  <section class="card">
+  <section class="card" id="secDxy">
+    <p class="section-cat">Fundamentos</p>
     <div class="section-head">
       <h2>DXY (Índice do Dólar)</h2>
       <p>Calculado aqui no navegador a partir de 6 pares de câmbio, com a fórmula oficial do ICE — a Twelve Data
@@ -330,7 +376,8 @@
     <div id="dxyBox"><p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secVix">
+    <p class="section-cat">Fundamentos</p>
     <div class="section-head">
       <h2>VIX</h2>
       <p>Tentativa direto pela Twelve Data, na mesma busca do DXY (sem custo extra de cota) — não confirmei
@@ -339,7 +386,8 @@
     <div id="vixBox"><p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secAlertas">
+    <p class="section-cat">Execução</p>
     <div class="section-head">
       <h2>Alertas (aguardando confirmação)</h2>
       <p>Um rompimento de estrutura (BOS/CHoCH) aparece aqui no instante em que acontece — antes de confirmado.
@@ -354,7 +402,8 @@
     <div id="pendingBox"><p class="controls-note">Nenhum alerta pendente agora.</p></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secTicket">
+    <p class="section-cat">Execução</p>
     <div class="section-head"><h2>Ticket</h2><p>O último sinal <strong>confirmado</strong>, com a entrada ajustada pro preço atual — pronto pra ler e operar na sua corretora, nunca executado por aqui.</p></div>
 
     <div class="block-label">
@@ -378,7 +427,8 @@
     <div id="sizingBox"><p class="controls-note">Sem sinal confirmado pra dimensionar ainda.</p></div>
   </section>
 
-  <section>
+  <section id="secChart">
+    <p class="section-cat">Análise</p>
     <div class="section-head">
       <h2>Gráfico TradingView (preço real, ao vivo)</h2>
       <p>Widget oficial da TradingView — preço de verdade, direto da fonte, tick a tick, sem chave de API.
@@ -395,6 +445,7 @@
   </section>
 
   <section>
+    <p class="section-cat">Análise</p>
     <div class="section-head"><h2>Gráfico da análise</h2><p>Role para o lado para ver toda a janela — cada pivô mostra a onda; cada gatilho, se passou ou foi bloqueado.</p></div>
     <div class="legend">
       <span><span class="swatch" style="background:var(--up)"></span>Compra (BOS/CHoCH de alta)</span>
@@ -412,7 +463,8 @@
     </div>
   </section>
 
-  <section>
+  <section id="secSinais">
+    <p class="section-cat">Análise</p>
     <div class="section-head"><h2>Sinais</h2><p>Na ordem em que o filtro de risco os avaliaria; PASS mostra o ticket e deixa registrar a execução.
     Resultado é calculado olhando pra frente a partir da entrada na confirmação (preço de agora, não o da formação) —
     só dá pra saber depois que o mercado andou; se stop e alvo são tocados no mesmo candle, contamos como perda (conservador).</p></div>
@@ -425,7 +477,8 @@
     </div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secRegistro">
+    <p class="section-cat">Diário</p>
     <div class="section-head"><h2>Registro de operações</h2><p>Só o que você confirma manualmente — fica salvo neste navegador (não sincroniza entre dispositivos).</p></div>
     <div class="trade-form">
       <div class="field"><label for="tfSide">Lado</label><select id="tfSide"><option value="BUY">COMPRA</option><option value="SELL">VENDA</option></select></div>
@@ -876,7 +929,7 @@
     // pra sempre — mesmo que uma conta futura (outros parâmetros, mais dados chegando) não o
     // reproduza mais, ele não some da tela. Só se aplica a dado ao vivo real.
     if (dataSource==="live") logConfirmedSignals(graded);
-    const gradedH = dataSource==="live" ? mergeSignalHistory(graded, candles) : graded;
+    const gradedH = dataSource==="live" ? mergeSignalHistory(graded, candles, refPrice) : graded;
 
     renderSummary(candles, result, gradedH);
     renderStatusStrip(candles);
@@ -1647,8 +1700,19 @@
 
   // ---------- histórico permanente de sinais confirmados (nunca apaga, só acrescenta) ----------
   const SIGNAL_LOG_KEY = "xau-signal-log";
+  // sobe esse número de novo sempre que a lógica de sinal mudar o bastante pra invalidar
+  // o histórico gravado antes — zera o log de todo mundo automaticamente no próximo carregamento
+  const SIGNAL_LOG_VERSION_KEY = "xau-signal-log-version";
+  const SIGNAL_LOG_VERSION = "2";
   function loadSignalLog(){
     try {
+      if (localStorage.getItem(SIGNAL_LOG_VERSION_KEY) !== SIGNAL_LOG_VERSION){
+        try {
+          localStorage.setItem(SIGNAL_LOG_KEY, "{}");
+          localStorage.setItem(SIGNAL_LOG_VERSION_KEY, SIGNAL_LOG_VERSION);
+        } catch {}
+        return {};
+      }
       const raw = JSON.parse(localStorage.getItem(SIGNAL_LOG_KEY)||"{}");
       // limpa qualquer entrada que já tivesse sido gravada corrompida antes dessa validação existir
       const clean = {}; let removed = 0;
@@ -1683,11 +1747,15 @@
   // junta os sinais calculados agora com os do histórico permanente que não aparecem mais no
   // cálculo ao vivo — assim um sinal já confirmado nunca desaparece da tabela/ticket, mesmo que
   // uma conta futura não o reproduza. Reindexa pela série atual quando o candle ainda existe nela.
-  function mergeSignalHistory(graded, candles){
+  function mergeSignalHistory(graded, candles, refPrice){
     const liveIds = new Set(graded.map(signalId));
     const loggedOnly = [];
     for (const g of Object.values(signalLog)){
       if (liveIds.has(signalId(g))) continue;
+      // um sinal que era são quando foi gravado pode deixar de ser — o preço real andou e a
+      // entrada antiga ficou desconexa do mercado de hoje. Revalida a cada render, não só uma
+      // vez no load: é exatamente o que faltava antes (log só filtrava na gravação/no load).
+      if (!isSaneSignal(g, refPrice)) continue;
       const i = indexForTime(candles, g.t);
       loggedOnly.push(i>=0 ? { ...g, i } : { ...g, i: undefined });
     }
