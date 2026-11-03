@@ -311,9 +311,11 @@
       </table>
     </div>
     <p class="controls-note" style="margin-top:10px">Os 4 pilares por trás disso: <strong>juros reais dos EUA</strong>
-    (Treasuries − inflação esperada, o principal direcionador — juro real sobe, ouro cai), <strong>DXY</strong>
-    (correlação inversa — dólar fraco, ouro sobe), <strong>geopolítica/VIX</strong> (ouro como refúgio em crise) e
-    <strong>fluxo de compra de bancos centrais</strong> (desdolarização cria piso estrutural de preço).</p>
+    (Treasuries − inflação esperada, o principal direcionador — juro real sobe, ouro cai; sem dado ao vivo aqui —
+    a fonte pública, o FRED, não libera CORS pro navegador, e isso exigiria um servidor), <strong>DXY</strong>
+    (correlação inversa — dólar fraco, ouro sobe; calculado abaixo), <strong>geopolítica/VIX</strong> (ouro como
+    refúgio em crise; VIX abaixo) e <strong>fluxo de compra de bancos centrais</strong> (desdolarização cria piso
+    estrutural de preço).</p>
   </section>
 
   <section class="card">
@@ -324,6 +326,15 @@
       grátis dividida entre os dois. Precisa da mesma chave da Twelve Data salva na aba "Preço ao vivo".</p>
     </div>
     <div id="dxyBox"><p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p></div>
+  </section>
+
+  <section class="card">
+    <div class="section-head">
+      <h2>VIX</h2>
+      <p>Tentativa direto pela Twelve Data, na mesma busca do DXY (sem custo extra de cota) — não confirmei
+      de antemão se o símbolo está disponível no seu plano; se não estiver, mostra abaixo sem quebrar o resto do painel.</p>
+    </div>
+    <div id="vixBox"><p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p></div>
   </section>
 
   <section class="card">
@@ -1050,19 +1061,34 @@
   el("btnCotRefresh").addEventListener("click", loadCot);
   loadCot();
 
-  // ---------- DXY calculado (a Twelve Data não tem o símbolo direto) ----------
+  // ---------- DXY calculado + VIX (a Twelve Data não tem o símbolo de DXY direto) ----------
   // peso oficial do ICE pra cada par — fórmula pública, não muda
   const DXY_WEIGHTS = { "EUR/USD":-0.576, "USD/JPY":0.136, "GBP/USD":-0.119, "USD/CAD":0.091, "USD/SEK":0.042, "USD/CHF":0.036 };
   let dxyValue = null, dxyUpdatedAt = null;
+  let vixValue = null, vixUpdatedAt = null, vixAvailable = null; // null = ainda não checou, false = símbolo indisponível na Twelve Data
 
   async function fetchDxy(){
-    const box = el("dxyBox");
+    const dxyBox = el("dxyBox"), vixBox = el("vixBox");
     const apiKey = loadLiveKey();
-    if (!apiKey){ if (box) box.innerHTML = '<p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p>'; return; }
+    if (!apiKey){
+      if (dxyBox) dxyBox.innerHTML = '<p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p>';
+      if (vixBox) vixBox.innerHTML = '<p class="controls-note">Aguardando chave da Twelve Data (configure na aba "Preço ao vivo").</p>';
+      return;
+    }
+    // junta DXY (6 pares) + VIX numa busca só — economiza cota (mesmo limite grátis dividido com o XAU).
+    // Trata cada um como falha independente — um erro no DXY não deve impedir o VIX de aparecer, e vice-versa.
+    let data;
     try {
-      const symbols = Object.keys(DXY_WEIGHTS).join(",");
+      const symbols = [...Object.keys(DXY_WEIGHTS), "VIX"].join(",");
       const resp = await fetch("https://api.twelvedata.com/price?symbol="+encodeURIComponent(symbols)+"&apikey="+encodeURIComponent(apiKey));
-      const data = await resp.json();
+      data = await resp.json();
+    } catch (err){
+      if (dxyBox) dxyBox.innerHTML = '<p class="controls-note" style="color:var(--block)">Não consegui buscar os dados agora ('+(err.message||err)+').</p>';
+      if (vixBox) vixBox.innerHTML = '<p class="controls-note" style="color:var(--block)">Não consegui buscar os dados agora ('+(err.message||err)+').</p>';
+      return;
+    }
+
+    try {
       let product = 1;
       for (const [sym, weight] of Object.entries(DXY_WEIGHTS)){
         const entry = data[sym];
@@ -1074,8 +1100,28 @@
       dxyUpdatedAt = Date.now();
       renderDxy();
     } catch (err){
-      if (box) box.innerHTML = '<p class="controls-note" style="color:var(--block)">Não consegui calcular o DXY agora ('+(err.message||err)+').</p>';
+      if (dxyBox) dxyBox.innerHTML = '<p class="controls-note" style="color:var(--block)">Não consegui calcular o DXY agora ('+(err.message||err)+').</p>';
     }
+
+    const vixPrice = data["VIX"] && parseFloat(data["VIX"].price);
+    vixAvailable = vixPrice>0;
+    if (vixAvailable) { vixValue = vixPrice; vixUpdatedAt = Date.now(); }
+    renderVix();
+  }
+
+  function renderVix(){
+    const box = el("vixBox");
+    if (!box) return;
+    if (vixAvailable===false){
+      box.innerHTML = '<p class="controls-note">A Twelve Data não tem o símbolo VIX disponível na sua chave/plano — sem fonte gratuita alternativa com CORS liberado encontrada até agora.</p>';
+      return;
+    }
+    if (vixValue==null) return;
+    const when = new Date(vixUpdatedAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"});
+    box.innerHTML =
+      '<div class="cot-headline"><div><span class="cot-headline-label">VIX · '+when+'</span>'+
+      '<div class="cot-headline-value">'+vixValue.toFixed(2)+'</div></div></div>'+
+      '<p class="controls-note" style="margin-top:8px">Índice de volatilidade/medo do S&P 500 — picos costumam coincidir com fuga pra ativos de refúgio, favorável ao ouro.</p>';
   }
 
   function renderDxy(){
