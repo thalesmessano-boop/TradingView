@@ -1,0 +1,7 @@
+{
+  "cooldown_minutes": 15,
+  "max_signals_per_day": 6,
+  "min_rr": 1.5,
+  "min_stop_distance_usd": 1.0,
+  "max_stop_distance_usd": 50.0
+}
