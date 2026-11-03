@@ -654,19 +654,36 @@
       const longTrigger = (bosUp||chochUp) && volOk && macroTrendHere===1 && microTrend===1 && emaOkLong;
       const shortTrigger = (bosDown||chochDown) && volOk && macroTrendHere===-1 && microTrend===-1 && emaOkShort;
 
+      // Liquidity sweep: pavio além de um nível de estrutura + fechamento de volta pra dentro —
+      // captura de liquidez e rejeição, sinal OPOSTO ao lado varrido (não é rompimento limpo como
+      // BOS/CHoCH). Da nota "Confluências Técnicas" do vault: "espere a captura da liquidez
+      // (pavio longo) e o fechamento da vela de volta pro caixote antes de validar a entrada" —
+      // e "o ouro rompe um topo por poucos pips (capturando stop dos vendedores) pra só então
+      // despencar". Mesmos filtros de volume/macro/EMA do BOS/CHoCH, pra não virar ruído solto.
+      // exige que a MÁXIMA anterior já estivesse dentro do nível (primeiro candle a furar) —
+      // senão um trecho inteiro de candles "presos" acima/abaixo do mesmo nível velho dispara
+      // um sweep em cada um deles, em vez de só na varrida de verdade
+      const sweepDown = lastSwingHigh!=null && i>0 && candles[i-1].h<=lastSwingHigh && c.h>lastSwingHigh && c.c<lastSwingHigh;
+      const sweepUp = lastSwingLow!=null && i>0 && candles[i-1].l>=lastSwingLow && c.l<lastSwingLow && c.c>lastSwingLow;
+      const sweepBuyTrigger = sweepUp && volOk && macroTrendHere===1 && emaOkLong;
+      const sweepSellTrigger = sweepDown && volOk && macroTrendHere===-1 && emaOkShort;
+
       barMeta.push({ i, ph:microPH[i], pl:microPL[i], waveLabel: waveEvent?waveLabel:null,
         bosUp,bosDown,chochUp,chochDown, macroTrend:macroTrendHere, microTrend, volRatio, volOk });
 
-      if ((longTrigger||shortTrigger) && atrMacro[i]!=null){
+      const anyBuy = longTrigger || sweepBuyTrigger, anySell = shortTrigger || sweepSellTrigger;
+      if ((anyBuy||anySell) && atrMacro[i]!=null){
         const entryRaw = c.c;
         let slRaw, tpRaw, side, event;
-        if (longTrigger){
-          side="BUY"; event = chochUp?"CHOCH":"BOS";
-          slRaw = Math.min(lastSwingLow ?? entryRaw, entryRaw) - atrMacro[i]*p.atrBuffer;
+        if (anyBuy){
+          side="BUY";
+          if (longTrigger){ event = chochUp?"CHOCH":"BOS"; slRaw = Math.min(lastSwingLow ?? entryRaw, entryRaw) - atrMacro[i]*p.atrBuffer; }
+          else { event = "SWEEP"; slRaw = c.l - atrMacro[i]*p.atrBuffer; } // invalida se voltar a furar o fundo varrido
           tpRaw = entryRaw + (entryRaw-slRaw)*p.rrRatio;
         } else {
-          side="SELL"; event = chochDown?"CHOCH":"BOS";
-          slRaw = Math.max(lastSwingHigh ?? entryRaw, entryRaw) + atrMacro[i]*p.atrBuffer;
+          side="SELL";
+          if (shortTrigger){ event = chochDown?"CHOCH":"BOS"; slRaw = Math.max(lastSwingHigh ?? entryRaw, entryRaw) + atrMacro[i]*p.atrBuffer; }
+          else { event = "SWEEP"; slRaw = c.h + atrMacro[i]*p.atrBuffer; } // invalida se voltar a furar o topo varrido
           tpRaw = entryRaw - (slRaw-entryRaw)*p.rrRatio;
         }
         // arredonda entrada/stop/alvo pra 2 casas (o que a tela mostra) e SÓ DEPOIS deriva o R:R
