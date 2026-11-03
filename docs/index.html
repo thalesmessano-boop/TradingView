@@ -372,7 +372,7 @@
     <p class="controls-note" id="signalsSummary" style="margin-bottom:10px"></p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Quando</th><th>Lado</th><th>Evento</th><th>Onda</th><th>Vol</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>R:R</th><th>Veredito</th><th>Resultado</th></tr></thead>
+        <thead><tr><th>Quando</th><th>Sessão</th><th>Lado</th><th>Evento</th><th>Onda</th><th>Vol</th><th>Entrada</th><th>Stop</th><th>Alvo</th><th>R:R</th><th>Veredito</th><th>Resultado</th></tr></thead>
         <tbody id="signalsBody"></tbody>
       </table>
     </div>
@@ -692,7 +692,10 @@
         const entry = round2(entryRaw), sl = round2(slRaw), tp = round2(tpRaw);
         const stopDist = Math.abs(entry-sl);
         const rr = stopDist>0 ? round2(Math.abs(tp-entry)/stopDist) : p.rrRatio;
-        signals.push({ i, t:c.t, side, event, waveLabel, volRatio, entry, sl, tp, rr });
+        // sessão em que o sinal se formou — contexto, não filtro (sua nota caracteriza o
+        // comportamento de cada sessão, não dá um limiar numérico pra bloquear sozinho)
+        const session = getSessionInfo(c.t).sessionLabel;
+        signals.push({ i, t:c.t, side, event, waveLabel, volRatio, entry, sl, tp, rr, session });
       }
     }
     return { macro, barMeta, signals, atr, atrMacro, emaMacro, volSma };
@@ -846,7 +849,7 @@
       const minsLeft = Math.max(0, barsLeft) * 15; // assume candle de 15min, mesma unidade dos dados
       return '<div class="pending-row"><span class="badge pending">AGUARDANDO</span>'+
         '<strong>'+s.side+' '+s.event+'</strong><span class="controls-note">formado às '+when+
-        ' · onda '+s.waveLabel+' · vol '+s.volRatio.toFixed(2)+'x · confirma em ~'+minsLeft+' min (se não mudar antes)</span></div>';
+        ' ('+(s.session||"—")+') · onda '+s.waveLabel+' · vol '+s.volRatio.toFixed(2)+'x · confirma em ~'+minsLeft+' min (se não mudar antes)</span></div>';
     }).join("");
   }
 
@@ -905,7 +908,7 @@
           '<div class="lvl"><span class="k">R:R</span><span class="v">'+lvl.rr.toFixed(1)+'</span></div>'+
         '</div>'+
         '<div class="ticket-adjust">Estrutura formada em '+lastPass.entry.toFixed(2)+' às '+formedWhen+
-          ', confirmou em '+confirmWhen+' — essa é a entrada travada, não muda mais. Preço agora: '+currentClose.toFixed(2)+
+          ' ('+(lastPass.session||"—")+'), confirmou em '+confirmWhen+' — essa é a entrada travada, não muda mais. Preço agora: '+currentClose.toFixed(2)+
           ' ('+(currentClose-lvl.entry>=0?"+":"")+(currentClose-lvl.entry).toFixed(2)+' desde a entrada).</div>'+
         '<div class="ticket-actions">'+
           '<button id="btnCopyTicket">Copiar ticket</button>'+
@@ -1036,8 +1039,8 @@
   })();
 
   // ---------- relógio de sessão (hora real do navegador, não dos dados carregados) ----------
-  function getSessionInfo(){
-    const now = new Date();
+  function getSessionInfo(at){
+    const now = at!=null ? new Date(at) : new Date();
     const day = now.getUTCDay(); // 0=domingo .. 6=sábado
     const h = now.getUTCHours(), m = now.getUTCMinutes();
     const minutesNow = h*60+m;
@@ -1340,13 +1343,13 @@
         else if (outcome.status==="invalidado") resultCell = '<span class="badge neutral" title="preço já tinha passado do stop antes da confirmação — nunca teria entrado">INVALIDADO</span>';
         else resultCell = '<span class="controls-note">aguardando confirmar</span>';
       }
-      tr.innerHTML = "<td>"+when+"</td><td>"+g.side+"</td><td>"+g.event+"</td><td>"+g.waveLabel+"</td>"+
+      tr.innerHTML = "<td>"+when+"</td><td>"+(g.session||"—")+"</td><td>"+g.side+"</td><td>"+g.event+"</td><td>"+g.waveLabel+"</td>"+
         "<td>"+g.volRatio.toFixed(2)+"x</td><td>"+g.entry.toFixed(2)+"</td><td>"+g.sl.toFixed(2)+"</td>"+
         "<td>"+g.tp.toFixed(2)+"</td><td>"+g.rr.toFixed(1)+"</td><td>"+verdictCell+"</td><td>"+resultCell+"</td>";
       body.appendChild(tr);
     }
     if (!graded.length){
-      body.innerHTML = '<tr><td colspan="11" class="controls-note">Nenhum sinal com os parâmetros atuais — tente diminuir a sensibilidade dos pivôs ou o volume mínimo.</td></tr>';
+      body.innerHTML = '<tr><td colspan="12" class="controls-note">Nenhum sinal com os parâmetros atuais — tente diminuir a sensibilidade dos pivôs ou o volume mínimo.</td></tr>';
     }
     const resolved = counts.ganho + counts.perda;
     const summary = el("signalsSummary");
@@ -1587,7 +1590,7 @@
     if (notifyBaselineReady){
       for (const s of pending){
         if (!seenPendingIds.has(signalId(s))){
-          sendBrowserNotification("⏳ Novo alerta XAUUSD", s.side+" "+s.event+" formado — aguardando confirmação (~"+(confirmBars*15)+" min).");
+          sendBrowserNotification("⏳ Novo alerta XAUUSD", s.side+" "+s.event+" formado na sessão "+(s.session||"—")+" — aguardando confirmação (~"+(confirmBars*15)+" min).");
         }
       }
       for (const g of passNow){
